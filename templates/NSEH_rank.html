@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSEH - 启发式进化</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='NSEH_rank.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>NSEH_启发式进化</h1>
+            <div class="theme-switch">
+                <button id="theme-toggle">🌓 切换主题</button>
+            </div>
+            <p class="subtitle">这里显示存档内用户排名<br>排名依据是用户启发式的最佳适应度</p>
+        </header>
+
+        <div class="rank-container">
+            <div class="user-cards" id="user-cards">
+                <!-- 用户卡片将在这里动态生成 -->
+            </div>
+        </div>
+
+        <button class="back-btn" id="back-btn">返回进化页面</button>
+    </div>
+
+    <script src="{{ url_for('static', filename='NSEH_rank.js') }}"></script>
+</body>
+</html>

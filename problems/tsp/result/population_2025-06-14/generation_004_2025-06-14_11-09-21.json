@@ -1,0 +1,26 @@
+{
+  "heuristics": [
+    {
+      "concept": "\u8be5\u542f\u53d1\u5f0f\u7b97\u6cd5\u7684\u601d\u60f3\u662f\u8d2a\u5fc3\u5730\u9009\u62e9\u5f53\u524d\u8282\u70b9\u7684\u6700\u8fd1\u672a\u8bbf\u95ee\u8282\u70b9\u4f5c\u4e3a\u4e0b\u4e00\u6b65\uff0c\u4ee5\u5c40\u90e8\u6700\u4f18\u9010\u6b65\u903c\u8fd1\u5168\u5c40\u6700\u4f18\u3002\u82e5\u5269\u4f59\u672a\u8bbf\u95ee\u8282\u70b9\u4e3a\u7a7a\uff0c\u5219\u8fd4\u56de\u7ec8\u70b9\u3002",
+      "feature": "\u8d2a\u5fc3\u7b97\u6cd5+\u6700\u8fd1\u90bb\u9009\u62e9+\u5c40\u90e8\u6700\u4f18",
+      "algorithm": "import numpy as np\n\ndef select_next_node(current_node, destination_node, unvisited_nodes, distance_matrix):\n    if len(unvisited_nodes) == 0:\n        return destination_node\n    distances = distance_matrix[current_node][unvisited_nodes]\n    nearest_idx = np.argmin(distances)\n    next_node = unvisited_nodes[nearest_idx]\n    return next_node",
+      "objective": 1.645516479081369
+    },
+    {
+      "concept": "\u8be5\u542f\u53d1\u5f0f\u901a\u8fc7\u7a7a\u95f4\u805a\u7c7b\u5c06\u8282\u70b9\u5206\u7ec4\uff0c\u4f18\u5148\u5b8c\u6210\u5f53\u524d\u533a\u57df\u7684\u904d\u5386\uff0c\u7ec4\u5185\u91c7\u7528\u6700\u8fd1\u90bb\u7b56\u7565\uff0c\u7ec4\u95f4\u5207\u6362\u65f6\u7efc\u5408\u8003\u8651\u533a\u57df\u4e2d\u5fc3\u8ddd\u79bb\u548c\u7ec4\u5185\u5269\u4f59\u8282\u70b9\u5bc6\u5ea6\uff0c\u4ee5\u5e73\u8861\u5c40\u90e8\u6700\u4f18\u4e0e\u5168\u5c40\u8def\u5f84\u89c4\u5212",
+      "feature": "\u7a7a\u95f4\u805a\u7c7b+\u533a\u57df\u4f18\u5148+\u7ec4\u5185\u6700\u8fd1\u90bb+\u7ec4\u95f4\u52a0\u6743\u9009\u62e9",
+      "algorithm": "import numpy as np\nfrom sklearn.cluster import KMeans\n\ndef select_next_node(current_node, destination_node, unvisited_nodes, distance_matrix):\n    if len(unvisited_nodes) == 0:\n        return destination_node\n    \n    # Cluster unvisited nodes into 3 groups (or adjust based on problem size)\n    if len(unvisited_nodes) > 3:\n        coords = np.array([(i, i) for i in unvisited_nodes])  # Simplified placeholder for coordinates\n        kmeans = KMeans(n_clusters=min(3, len(unvisited_nodes)), random_state=0).fit(coords)\n        clusters = kmeans.labels_\n    else:\n        clusters = np.zeros(len(unvisited_nodes))\n    \n    # Check if current_node's cluster has remaining nodes\n    current_cluster = None\n    for i, node in enumerate(unvisited_nodes):\n        if node == current_node:\n            current_cluster = clusters[i]\n            break\n    \n    same_cluster_nodes = [node for i, node in enumerate(unvisited_nodes) if clusters[i] == current_cluster]\n    \n    if same_cluster_nodes:\n        # Within cluster: nearest neighbor\n        distances = distance_matrix[current_node][same_cluster_nodes]\n        nearest_idx = np.argmin(distances)\n        next_node = same_cluster_nodes[nearest_idx]\n    else:\n        # Between clusters: weighted by distance to centroid and cluster size\n        cluster_weights = []\n        for cluster_id in np.unique(clusters):\n            cluster_nodes = [node for i, node in enumerate(unvisited_nodes) if clusters[i] == cluster_id]\n            centroid_dist = np.mean(distance_matrix[current_node][cluster_nodes])\n            density_weight = 1 / len(cluster_nodes)\n            cluster_weights.append((cluster_id, centroid_dist * density_weight))\n        \n        # Select cluster with minimum weighted distance\n        best_cluster = min(cluster_weights, key=lambda x: x[1])[0]\n        target_nodes = [node for i, node in enumerate(unvisited_nodes) if clusters[i] == best_cluster]\n        distances = distance_matrix[current_node][target_nodes]\n        nearest_idx = np.argmin(distances)\n        next_node = target_nodes[nearest_idx]\n    \n    return next_node",
+      "objective": 6.89932478723238
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      "\u7a7a\u95f4\u805a\u7c7b+\u533a\u57df\u4f18\u5148+\u7ec4\u5185\u6700\u8fd1\u90bb+\u7ec4\u95f4\u52a0\u6743\u9009\u62e9",
+      "\u8d2a\u5fc3\u7b97\u6cd5+\u6700\u8fd1\u90bb\u9009\u62e9+\u5c40\u90e8\u6700\u4f18"
+    ],
+    "negative_features": [
+      "\u7a7a\u95f4\u805a\u7c7b+\u533a\u57df\u4f18\u5148+\u7ec4\u5185\u6700\u8fd1\u90bb+\u7ec4\u95f4\u52a0\u6743\u9009\u62e9",
+      "\u8d2a\u5fc3\u7b97\u6cd5+\u6700\u8fd1\u90bb\u9009\u62e9+\u5c40\u90e8\u6700\u4f18"
+    ]
+  }
+}

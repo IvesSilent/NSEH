@@ -1,0 +1,142 @@
+/* NSEH_rank.css */
+/* 全局样式 */
+:root {
+    /* 深色主题默认值 */
+    --bg-color: #121212;
+    --secondary-bg: #1E1E1E;
+    --text-color: #FF8C00;
+    --border-color: #FF8C00;
+    --card-bg: #2D2D2D;
+    --primary-color: #FF8C00;
+    --primary-color-hover: #FFA500;
+    --accent-color: #FF7300;
+}
+
+[data-theme="light"] {
+    --bg-color: #FFFFFF;
+    --secondary-bg: #F8F9FA;
+    --text-color: #2C3E50;
+    --border-color: #BDC3C7;
+    --card-bg: #FFFFFF;
+    --primary-color: #3498DB;
+    --accent-color: #27AE60;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* 头部样式 */
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 10px;
+    display: inline-block;
+}
+
+.subtitle {
+    font-size: 0.9rem;
+    max-width: 800px;
+    margin: 0 auto 30px;
+    line-height: 1.8;
+}
+
+/* 主题切换按钮 */
+.theme-switch {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+}
+
+#theme-toggle {
+    background: var(--secondary-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 8px 15px;
+    border-radius: 20px;
+    cursor: pointer;
+}
+
+/* 排行榜容器样式 */
+.rank-container {
+    margin-top: 30px;
+}
+
+.user-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.user-card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    transition: transform 0.3s ease;
+}
+
+.user-card:hover {
+    transform: translateY(-5px);
+}
+
+.user-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+}
+
+.user-card p {
+    margin-bottom: 5px;
+}
+
+.user-card .best-score {
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.back-btn {
+    display: block;
+    width: 200px;
+    margin: 30px auto 0;
+    padding: 12px;
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.back-btn:hover {
+    background-color: var(--primary-color-hover);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .user-cards {
+        grid-template-columns: 1fr;
+    }
+}

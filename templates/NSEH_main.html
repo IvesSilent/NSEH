@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSEH - 启发式进化</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='NSEH_main.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>NSEH_启发式进化</h1>
+        <div class="user-profile">
+    <p>欢迎，{{ session['user_name'] }} ({{ session['user_id'] }})</p>
+</div>
+        <div class="theme-switch">
+        <button id="theme-toggle">🌓 切换主题</button>
+            <button id="logout-btn" class="logout-btn">退出登录</button>
+    </div>
+        <p class="subtitle">本项目使用LLM生成启发式，构建启发式种群<br>在预备数据集上执行启发式的算法并与标准解进行比较计算适应度<br>然后根据适应度的排名保留效益最好的启发式
+        </p>
+    </header>
+
+    <div class="page-tabs">
+        <div class="tab active" id="setting-tab">设置</div>
+        <div class="tab" id="evolution-tab">进化</div>
+        <div class="tab" id="results-tab">结果</div>
+    </div>
+
+    <div class="page-content">
+        <!-- 设置页面 -->
+        <div class="page setting-page active" id="setting-page">
+            <div class="section">
+                <h2>进化参数</h2>
+                <!--                    <div class="form-group">-->
+                <!--                        <label for="population_capacity">种群容量</label>-->
+                <!--                        <input type="number" id="population_capacity" value="{{ config.population_capacity }}">-->
+                <!--                    </div>-->
+                <!--                    <div class="form-group">-->
+                <!--                        <label for="num_generations">进化迭代次数</label>-->
+                <!--                        <input type="number" id="num_generations" value="{{ config.num_generations }}">-->
+                <!--                    </div>-->
+                <!--                    <div class="form-group">-->
+                <!--                        <label for="num_mutation">每次突变个数</label>-->
+                <!--                        <input type="number" id="num_mutation" value="{{ config.num_mutation }}">-->
+                <!--                    </div>-->
+                <!--                    <div class="form-group">-->
+                <!--                        <label for="num_hybridization">参与交配的启发式数</label>-->
+                <!--                        <input type="number" id="num_hybridization" value="{{ config.num_hybridization }}">-->
+                <!--                    </div>-->
+                <!--                    <div class="form-group">-->
+                <!--                        <label for="num_reflection">参与反思的启发式数</label>-->
+                <!--                        <input type="number" id="num_reflection" value="{{ config.num_reflection }}">-->
+                <!--                    </div>-->
+                <div class="form-row">
+                    <div class="form-group inline">
+                        <label for="population_capacity">种群容量</label>
+                        <input type="number" id="population_capacity" value="{{ config.population_capacity }}">
+                    </div>
+                    <div class="form-group inline">
+                        <label for="num_generations">进化迭代次数</label>
+                        <input type="number" id="num_generations" value="{{ config.num_generations }}">
+                    </div>
+                    <div class="form-group inline">
+                        <label for="num_mutation">每次突变个数</label>
+                        <input type="number" id="num_mutation" value="{{ config.num_mutation }}">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group inline">
+                        <label for="num_hybridization">参与交配的启发式数</label>
+                        <input type="number" id="num_hybridization" value="{{ config.num_hybridization }}">
+                    </div>
+                    <div class="form-group inline">
+                        <label for="num_reflection">参与反思的启发式数</label>
+                        <input type="number" id="num_reflection" value="{{ config.num_reflection }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>LLM配置</h2>
+                <div class="form-group">
+                    <label for="api_key">API_KEY</label>
+                    <input type="text" id="api_key" placeholder="你的api-key">
+                </div>
+                <div class="form-group">
+                    <label for="base_url">BASE_URL</label>
+                    <input type="text" id="base_url" value="{{ config.base_url }}">
+                </div>
+                <div class="form-group">
+                    <label for="llm_model">LLM_MODEL</label>
+                    <input type="text" id="llm_model" value="{{ config.llm_model }}">
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>问题情景</h2>
+                <div class="form-group">
+                    <label for="problem">问题情景</label>
+                    <textarea id="problem">{{ config.problem }}</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="fun_name">函数名</label>
+                    <input type="text" id="fun_name" value="{{ config.fun_name }}">
+                </div>
+                <div class="form-group">
+                    <label for="fun_args">函数参数</label>
+                    <div class="args-input">
+                        <div class="args-container" id="fun_args_container">
+                            {% for arg in config.fun_args %}
+                            <div class="arg-item" contenteditable="true">{{ arg }}</div>
+                            {% endfor %}
+                        </div>
+                        <button class="add-btn" id="add_arg_btn">添加参数</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fun_return">函数返回值</label>
+
+                    <div class="args-input">
+                        <div class="args-container" id="fun_return_container">
+                            {% for ret in config.fun_return %}
+                            <div class="arg-item" contenteditable="true">{{ ret }}</div>
+                            {% endfor %}
+                        </div>
+                        <button class="add-btn" id="add_return_btn">添加返回值</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fun_notes">注意事项</label>
+                    <textarea id="fun_notes">{{ config.fun_notes }}</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="ascend">进化方向</label>
+                    <select id="ascend">
+                        <option value="true">适应度较小</option>
+                        <option value="false">适应度较大</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="problem_path">问题目录</label>
+                    <div class="file-input">
+                        <input type="text" id="problem_path" value="{{ config.problem_path }}">
+                        <button class="browse-btn" id="browse_problem_path">浏览</button>
+                        <input type="file" id="problem_path_file" style="display: none;" webkitdirectory directory>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="train_data">训练数据</label>
+                    <div class="file-input">
+                        <input type="text" id="train_data" value="{{ config.train_data }}">
+                        <button class="browse-btn">浏览</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="train_solution">标准解</label>
+                    <div class="file-input">
+                        <input type="text" id="train_solution" value="{{ config.train_solution }}">
+                        <button class="browse-btn">浏览</button>
+                    </div>
+                </div>
+            </div>
+
+            <button class="start-btn" id="start-evolution-btn">开始进化</button>
+        </div>
+
+        <!-- 进化页面 -->
+        <div class="page evolution-page" id="evolution-page">
+            <div class="evolution-header">
+                <h2>进化过程</h2>
+                <p class="page-description">动态呈现各迭代启发式种群及其中生成的启发式</p>
+            </div>
+            <input type="hidden" id="current_population_index" value="0">
+            <div class="population-container" id="population-container">
+                <!-- 种群卡片将在这里动态生成 -->
+            </div>
+            <div class="heuristic-details-container" id="heuristic-details-container">
+                <div class="heuristic-details-card">
+                    <div class="details-header">
+                        <h3>启发式详情</h3>
+                        <button class="close-btn" onclick="closeDetailsCard()">关闭</button>
+                    </div>
+                    <div class="details-content">
+                        <div class="detail-item">
+                            <h4>启发式概念</h4>
+                            <p id="detail-concept"></p>
+                        </div>
+                        <div class="detail-item">
+                            <h4>适应度</h4>
+                            <p id="detail-objective"></p>
+                        </div>
+                        <div class="detail-item">
+                            <h4>特征</h4>
+                            <p id="detail-feature"></p>
+                        </div>
+                        <div class="detail-item">
+                            <h4>算法代码</h4>
+<!--                            <pre id="detail-algorithm"></pre>-->
+                                <div class="code-container">
+                                    <pre id="detail-algorithm"></pre>
+                                    <button class="copy-btn" onclick="copyAlgorithm()">复制</button>
+                                    <div class="copy-success" id="copy-success">已复制！</div>
+                                </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="evolution-controls">
+                <button class="control-btn pause-btn" id="pause-evolution-btn">进化暂停</button>
+                <button class="control-btn resume-btn" id="resume-evolution-btn">进化继续</button>
+                <button class="control-btn altprompt-btn" id="edit-prompt-btn">用户提示词</button>
+                <button class="control-btn stop-btn" id="stop-evolution-btn">进化终止</button>
+            </div>
+        </div>
+
+        <!-- 结果页面 -->
+        <div class="page results-page" id="results-page">
+            <div class="results-header">
+                <h2>进化结果</h2>
+                <p class="page-description">以折线图呈现进化过程中历代种群启发式的最优适应度</p>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="results-chart"></canvas>
+            </div>
+
+            <button class="open-results-btn" id="open-results-btn">打开结果目录</button>
+            <button class="open-rank-btn" id="open-rank-btn">查看用户排行榜</button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='NSEH_main.js') }}"></script>
+
+</body>
+</html>

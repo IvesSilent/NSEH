@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSEH - 启发式进化</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='NSEH_login.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>NSEH_启发式进化</h1>
+            <div class="theme-switch">
+                <button id="theme-toggle">🌓 切换主题</button>
+            </div>
+            <p class="subtitle">登录NSEH的web应用端<br>账号为你的一卡通号<br>密码为身份证号后六位</p>
+        </header>
+
+        <div class="login-container">
+            <div class="login-form">
+                <h2>用户登录</h2>
+                <div class="form-group">
+                    <label for="user_id">账号</label>
+                    <input type="text" id="user_id" placeholder="请输入账号">
+                </div>
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <input type="password" id="password" placeholder="请输入密码">
+                </div>
+                <button class="login-btn" id="login-btn">登录</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='NSEH_login.js') }}"></script>
+</body>
+</html>

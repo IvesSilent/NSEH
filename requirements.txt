@@ -1,0 +1,6 @@
+Flask==2.0.2
+numpy==1.21.2
+openai==0.15.0
+aiohttp==3.7.4
+json==2.0.9
+pickle==4.0
