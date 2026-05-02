@@ -162,7 +162,7 @@ if __name__ == "__main__":
                  "所有数据均为Numpy数组。")
 
     # LLM配置
-    api_key = "sk-adc490f6203a4c6ab9ae9faf985897c2"  # 替换为你的api_key
+    api_key = "sk-YOUR_API_KEY_XXXXXX"  # 替换为你的api_key
     base_url = "https://api.deepseek.com/v1"
     llm_model = "deepseek-chat"
 

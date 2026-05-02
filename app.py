@@ -82,7 +82,17 @@ def user_login():
                 # 登录成功
                 session['user_id'] = user_id
                 session['user_name'] = user['user_name']
-                session['user_best_score'] = user['best_score'] if user['best_score'] != 'null' else None
+
+                # session['user_best_score'] = user['best_score'] if user['best_score'] != 'null' else None
+                # 【修复】正确处理 best_score，转换为数值或 None
+                best_score_raw = user.get('best_score', 'null')
+                if best_score_raw == 'null' or best_score_raw is None or best_score_raw == '':
+                    session['user_best_score'] = None
+                else:
+                    try:
+                        session['user_best_score'] = float(best_score_raw)
+                    except (ValueError, TypeError):
+                        session['user_best_score'] = None
 
                 # 同步到全局变量
                 user_name = session['user_name']
@@ -124,7 +134,18 @@ def index():
         # breakpoint()
         user_name = session['user_name']
         user_id = session['user_id']
-        user_best_score = session['user_best_score']
+
+        # user_best_score = session['user_best_score']
+        # 【修复】确保从 session 获取的 user_best_score 类型正确
+        session_score = session.get('user_best_score')
+        if session_score == 'null' or session_score is None:
+            user_best_score = None
+        else:
+            try:
+                user_best_score = float(session_score) if isinstance(session_score, str) else session_score
+            except (ValueError, TypeError):
+                user_best_score = None
+
     return render_template('NSEH_main.html', config=default_config, page='setting')
 
 
@@ -483,19 +504,47 @@ def update_user_best_score():
 
             for i, user in enumerate(users):
                 if user['user_id'] == user_id:
-                    if user['best_score'] == 'null':
+
+                    # 【修复】正确处理 best_score 比较
+                    current_best_str = user.get('best_score', 'null')
+
+                    if current_best_str == 'null' or current_best_str is None or current_best_str == '':
+                        # 之前没有记录，直接更新
                         user['best_score'] = str(user_best_score)
                         updated = True
                     else:
-                        current_best = float(user['best_score'])
-                        if evolution.ascend:
-                            if user_best_score < current_best:
-                                user['best_score'] = str(user_best_score)
-                                updated = True
-                        else:
-                            if user_best_score > current_best:
-                                user['best_score'] = str(user_best_score)
-                                updated = True
+                        try:
+                            current_best = float(current_best_str)
+                            # 【修复】确保 user_best_score 是数值
+                            user_best_float = float(user_best_score) if not isinstance(user_best_score, str) else float(
+                                user_best_score)
+
+                            if evolution.ascend:
+                                if user_best_float < current_best:
+                                    user['best_score'] = str(user_best_score)
+                                    updated = True
+                            else:
+                                if user_best_float > current_best:
+                                    user['best_score'] = str(user_best_score)
+                                    updated = True
+                        except (ValueError, TypeError):
+                            # 转换失败，直接更新
+                            user['best_score'] = str(user_best_score)
+                            updated = True
+
+                    # if user['best_score'] == 'null':
+                    #     user['best_score'] = str(user_best_score)
+                    #     updated = True
+                    # else:
+                    #     current_best = float(user['best_score'])
+                    #     if evolution.ascend:
+                    #         if user_best_score < current_best:
+                    #             user['best_score'] = str(user_best_score)
+                    #             updated = True
+                    #     else:
+                    #         if user_best_score > current_best:
+                    #             user['best_score'] = str(user_best_score)
+                    #             updated = True
             # print(f"updated = {updated}")
             # print(f"users = {users}")
             # breakpoint()
@@ -543,9 +592,17 @@ def update_population_data():
     # 更新user_best_score为当前种群的最优适应度
     if evolution.population['heuristics']:
         current_best_objective = evolution.population['heuristics'][0]['objective']
-        if user_best_score is None:
+
+        # 【修复】确保 user_best_score 是数值类型
+        if user_best_score is None or user_best_score == 'null':
             user_best_score = current_best_objective
         else:
+            # 【修复】确保比较前转换为浮点数
+            try:
+                user_best_score_float = float(user_best_score)
+            except (ValueError, TypeError):
+                user_best_score_float = float('inf') if evolution.ascend else float('-inf')
+
             if evolution.ascend:
                 # 如果适应度越小越好，且当前最优适应度小于user_best_score，则更新
                 if current_best_objective < user_best_score:
