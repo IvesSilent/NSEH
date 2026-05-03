@@ -1,30 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NSEH - 启发式进化</title>
+    <title>NSEH - 排行榜</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='NSEH_rank.css') }}">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>NSEH_启发式进化</h1>
-            <div class="theme-switch">
-                <button id="theme-toggle">🌓 切换主题</button>
-            </div>
-            <p class="subtitle">这里显示存档内用户排名<br>排名依据是用户启发式的最佳适应度</p>
-        </header>
+<div class="container">
+    <header>
+        <h1>🏆 用户排行榜</h1>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:8px;">
+            根据每次进化实验的最佳适应度排名
+        </p>
+        <a href="/" class="back-link">← 返回主页</a>
+    </header>
 
-        <div class="rank-container">
-            <div class="user-cards" id="user-cards">
-                <!-- 用户卡片将在这里动态生成 -->
-            </div>
-        </div>
-
-        <button class="back-btn" id="back-btn">返回进化页面</button>
-    </div>
-
-    <script src="{{ url_for('static', filename='NSEH_rank.js') }}"></script>
+    <table class="rank-table">
+        <thead>
+            <tr>
+                <th style="width:60px">排名</th>
+                <th>用户</th>
+                <th>最佳适应度</th>
+            </tr>
+        </thead>
+        <tbody id="rank-body"></tbody>
+    </table>
+</div>
+<script src="{{ url_for('static', filename='NSEH_rank.js') }}"></script>
 </body>
 </html>

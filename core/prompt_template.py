@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 # prompt_template.py
-from core.llm_interface import llm_interface
+
 import re
 import numpy as np
 
-
-# prompt_template 提示词模版生成
 class prompt_template():
     def __init__(self, problem, fun_name, fun_args, fun_return, fun_notes):
         self.problem = problem
+
         fun_requirement = (f"用Python实现一个名为{fun_name}的函数。\n"
                            f"该函数应接受{len(fun_args)}个输入：")
         amount_args = len(fun_args)
@@ -27,17 +26,21 @@ class prompt_template():
                 fun_requirement += ", "
         fun_requirement += f"。\n{fun_notes}\n"
 
-        # 启发式输出要求
-        output_requirement = ("你需要分别提供以下三个部分：\n"
-                              " - 该启发式的思想概念，用大括号包裹\n"
-                              " - 该启发式的策略关键词，用+连接，用大括号包裹\n"
-                              " - 该启发式的python代码，写在代码块里\n"
-                              "请按如下格式给出回复：\n"
-                              "{ 这里写思想概念 }\n{ 这里写策略关键词 }\n```python\n这里写代码实现```\n")
-
-        self.output_requirement = output_requirement
+        # 启发式输出要求 — 新增 tags 格式
+        self.output_requirement = (
+            "你需要分别提供以下四个部分：\n"
+            " - 该启发式的思想概念，用大括号包裹\n"
+            " - 该启发式的策略标签，每个标签用方括号包裹，多个标签用+连接，用大括号包裹\n"
+            "   例如：{ [贪婪搜索] + [随机抖动] + [最近邻] }\n"
+            " - 该启发式的python代码，写在代码块里\n"
+            "请按如下格式给出回复：\n"
+            "{ 这里写思想概念 }\n"
+            "{ [标签1] + [标签2] + [标签3] }\n"
+            "```python\n这里写代码实现```\n"
+        )
 
         self.fun_requirement = fun_requirement
+
         # 进化策略
         self.strategy_MUT = "请你设计一个与现有的这些启发式算法尽可能不同的新启发式算法。\n"
         self.strategy_HYB = "请你综合现有的这些启发式算法的关键思想，设计一个新的启发式算法。\n"
@@ -61,29 +64,40 @@ class prompt_template():
 
         condition_prompt += f"\n### 已有启发式\n我这里有如下{len(parent_heuristics)}个启发式：\n"
         for i in range(len(parent_heuristics)):
+            # If feature is a string (legacy), keep display; if list of tags, join
+            feat_display = parent_heuristics[i].get('feature', '')
+            if isinstance(feat_display, list):
+                feat_display = ' + '.join(feat_display)
+
             condition_prompt += (f"\n#### 启发式_{i + 1}\n"
                                  f"思想概念：{parent_heuristics[i]['concept']}\n"
-                                 f"策略关键词：{parent_heuristics[i]['feature']}\n"
+                                 f"策略标签：{feat_display}\n"
                                  f"代码如下\n```python{parent_heuristics[i]['algorithm']}```\n")
 
         if positive_features or negative_features:
             condition_prompt += "\n### 研究经验"
             if positive_features:
-                condition_prompt += "在我之前的研究过程中，有以下思想特征组合的启发式效果较好：\n"
-                for feature in positive_features:
-                    condition_prompt += f" - {feature}\n"
+                condition_prompt += "\n在我之前的研究过程中，有以下策略标签组合的启发式效果较好：\n"
+                for ft in positive_features:
+                    if isinstance(ft, list):
+                        condition_prompt += f" - {' + '.join(ft)}\n"
+                    else:
+                        condition_prompt += f" - {ft}\n"
             if negative_features:
-                condition_prompt += "在我之前的研究过程中，有以下思想特征组合的启发式效果较差：\n"
-                for feature in positive_features:
-                    condition_prompt += f" - {feature}\n"
+                condition_prompt += "\n在我之前的研究过程中，有以下策略标签组合的启发式效果较差：\n"
+                for ft in negative_features:
+                    if isinstance(ft, list):
+                        condition_prompt += f" - {' + '.join(ft)}\n"
+                    else:
+                        condition_prompt += f" - {ft}\n"
 
         condition_prompt += "\n### 优化策略\n"
 
-        if strategy == 'MUTATION':  # 突变策略
+        if strategy == 'MUTATION':
             condition_prompt += self.strategy_MUT
-        elif strategy == 'HYBRIDIZATION':  # 杂交策略
+        elif strategy == 'HYBRIDIZATION':
             condition_prompt += self.strategy_HYB
-        else:  # 优化策略
+        else:
             condition_prompt += self.strategy_OPT
 
         condition_prompt += self.analyze
@@ -95,11 +109,9 @@ class prompt_template():
         return [condition_prompt, result_prompt]
 
     def altprompt_get(self):
-        # 读取可自定义的提示词模版
         return self.fun_requirement, self.strategy_MUT, self.strategy_HYB, self.strategy_OPT, self.analyze
 
     def altprompt_set(self, fun_requirement, strategy_MUT, strategy_HYB, strategy_OPT, analyze):
-        # 写入可自定义的提示词模版
         self.fun_requirement = fun_requirement
         self.strategy_MUT = strategy_MUT
         self.strategy_HYB = strategy_HYB
@@ -107,17 +119,42 @@ class prompt_template():
         self.analyze = analyze
 
 
-# 启发式提取函
+def parse_tags(tag_string):
+    """
+    从字符串中解析标签列表。
+    支持格式: "[贪婪搜索] + [随机抖动]" 或 "贪婪搜索+随机抖动"
+    返回: ["贪婪搜索", "随机抖动"]
+    """
+    if not tag_string or not tag_string.strip():
+        return []
+
+    # 尝试匹配 [tag] + [tag] 格式
+    bracket_tags = re.findall(r'\[(.*?)\]', tag_string)
+    if bracket_tags:
+        return [t.strip() for t in bracket_tags if t.strip()]
+
+    # 回退: 按 + 分割
+    parts = re.split(r'\s*\+\s*', tag_string)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def get_heuristic(heuristic_string):
-    # 提取大括号中的内容
+    """从 LLM 回复中提取启发式字典"""
     bracket_contents = re.findall(r'\{(.*?)\}', heuristic_string, re.DOTALL)
-    # 提取代码块内容
     code_block = re.search(r'```python(.*?)```', heuristic_string, re.DOTALL)
     algorithm = code_block.group(1).strip() if code_block else ""
-    # 构造heuristic字典
+
+    concept = bracket_contents[0].strip() if len(bracket_contents) > 0 else ""
+
+    # 解析 tags
+    raw_tags = bracket_contents[1].strip() if len(bracket_contents) > 1 else ""
+    tags = parse_tags(raw_tags)
+    if not tags:
+        tags = [raw_tags] if raw_tags else []
+
     heuristic = {
-        'concept': bracket_contents[0].strip(),
-        'feature': bracket_contents[1].strip(),
+        'concept': concept,
+        'feature': tags,  # feature 现在是 list of tag strings
         'algorithm': algorithm,
         'objective': np.inf
     }
@@ -125,32 +162,25 @@ def get_heuristic(heuristic_string):
 
 
 if __name__ == "__main__":
-
-    # 优化策略
     strategies = ['MUTATION', 'HYBRIDIZATION', 'OPTIMIZATION']
 
-    # 种群
-    population_0 = {'heuristics': [],
-                    'memory': {
-                        'positive_features': [],
-                        'negative_features': []
-                    }}
+    population_0 = {
+        'heuristics': [],
+        'memory': {
+            'positive_features': [],
+            'negative_features': []
+        }
+    }
 
-    # print(f"初始化prompt:\n{initial_prompt}")
-
-    # 设置api_key和base_url
-    # api_key = "YOUR_api_key" # 替换为你的api_key
-
-    api_key = "sk-YOUR_API_KEY_XXXXXX"  # 替换为你的api_key
+    api_key = "sk-YOUR_API_KEY_XXXXXX"
     base_url = "https://api.deepseek.com/v1"
     llm_model = "deepseek-chat"
-    # llm_model = "deepseek-reasoner"
-
     if_stream = False
     message_list = []
+
+    from core.llm_interface import llm_interface
     interface_example = llm_interface(api_key, base_url, llm_model, if_stream)
 
-    # 初始化问题及启发式条件
     problem = ("TSP问题,即给定一组节点的坐标，您需要找到访问每个节点一次并返回起始点的最短路径。"
                "可以通过从当前节点开始逐步选择下一个节点来解决此任务。")
     fun_name = "select_next_node"
@@ -159,88 +189,36 @@ if __name__ == "__main__":
     fun_notes = ("'current_node','destination_node', 'next_node', 和 'unvisited_nodes'是节点ID，distance_matrix'是节点的距离矩阵。"
                  "所有数据均为Numpy数组。")
 
-    # 初始化prompt模版
-    prompt_template = prompt_template(problem, fun_name, fun_args, fun_return, fun_notes)
+    tmpl = prompt_template(problem, fun_name, fun_args, fun_return, fun_notes)
 
-    #############
-    ### 初始化 ###
-    #############
-
-    # 初始化的消息记录
-    message_list_0 = message_list
-
-    # 用于生成初始启发式的单个提示词
-    initial_prompt = prompt_template.prompt_initial_single()
-
-    # 将initial_prompt加入消息记录
+    # 初始化
+    message_list_0 = list(message_list)
+    initial_prompt = tmpl.prompt_initial_single()
     message_list_0.append({"role": "user", "content": initial_prompt})
-
-    # 得到初始启发式的字符串回复
     heuristic_string = interface_example.send_message(message_list_0)
-
-    # 将初始启发式加入种群
     population_0['heuristics'].append(get_heuristic(heuristic_string))
 
-    ###############
-    ### 进化策略 ####
-    ###############
-    population_1 = population_0
-    # 启发式进化的信息记录
-    message_list_1 = message_list
-
-    # # 用于进化的提示词组
-    # evol_prompt = prompt_template.prompt_evolve(strategies[0],population_0['heuristics'],
-    #                                               population_0['memory']['positive_features'],
-    #                                               population_0['memory']['negative_features'])
-    #
-    # message_list_1.append({"role": "user", "content": evol_prompt[0]})
-    #
-    # print(f"\nUser：\n{evol_prompt[0]}")
-    #
-    # response = interface_example.send_message(message_list_1)
-    # print(f"\nAssistant：\n{response}")
-    #
-    # message_list_1.append({"role": "assistant", "content": response})
-    # message_list_1.append({"role": "user", "content": evol_prompt[1]})
-    #
-    # print(f"\nUser：\n{evol_prompt[1]}")
-    #
-    # heuristic_string = interface_example.send_message(message_list_1)
-    # print(f"\nAssistant：\n{heuristic_string}")
-    #
-    # # 将初始启发式加入种群
-    # population_1['heuristics'].append(get_heuristic(heuristic_string))
-
-    k1 = 5  # 突变常数，重复5次
+    # 进化测试
+    population_1 = dict(population_0)
+    k1 = 5
     for i in range(k1):
-        # 启发式进化的信息记录
-        message_list_1 = message_list
-
-        # 用于进化的提示词组
-        evol_prompt = prompt_template.prompt_evolve(strategies[0], population_1['heuristics'],
-                                                    population_1['memory']['positive_features'],
-                                                    population_1['memory']['negative_features'])
-
+        message_list_1 = list(message_list)
+        evol_prompt = tmpl.prompt_evolve(strategies[0], population_1['heuristics'],
+                                         population_1['memory']['positive_features'],
+                                         population_1['memory']['negative_features'])
         message_list_1.append({"role": "user", "content": evol_prompt[0]})
-
         print(f"\nUser：\n{evol_prompt[0]}")
         print("------------------------------------------------------------------------------------------")
-
         response = interface_example.send_message(message_list_1)
         print(f"\nAssistant：\n{response}")
         print("------------------------------------------------------------------------------------------")
-
         message_list_1.append({"role": "assistant", "content": response})
         message_list_1.append({"role": "user", "content": evol_prompt[1]})
-
         print(f"\nUser：\n{evol_prompt[1]}")
         print("------------------------------------------------------------------------------------------")
-
         heuristic_string = interface_example.send_message(message_list_1)
         print(f"\nAssistant：\n{heuristic_string}")
         print("------------------------------------------------------------------------------------------")
-
-        # 将初始启发式加入种群
         population_1['heuristics'].append(get_heuristic(heuristic_string))
 
     print(f"\n\n\npopulation_1 = {population_1}")

@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NSEH - 启发式进化</title>
+    <title>NSEH - 启发式组合优化进化框架</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='NSEH_main.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <div class="container">
     <header>
-        <h1>NSEH_启发式进化</h1>
+        <h1>NSEH</h1>
         <div class="user-profile">
     <p>欢迎，{{ session['user_name'] }} ({{ session['user_id'] }})</p>
 </div>
@@ -173,6 +173,7 @@
                 <p class="page-description">动态呈现各迭代启发式种群及其中生成的启发式</p>
             </div>
             <input type="hidden" id="current_population_index" value="0">
+            <div class="evolution-layout">
             <div class="population-container" id="population-container">
                 <!-- 种群卡片将在这里动态生成 -->
             </div>
@@ -206,6 +207,8 @@
                         </div>
                     </div>
                 </div>
+            </div>
+            </div>
             </div>
             <div class="evolution-controls">
                 <button class="control-btn pause-btn" id="pause-evolution-btn">进化暂停</button>

@@ -1,142 +1,49 @@
-/* NSEH_rank.css */
-/* 全局样式 */
+/* NSEH Rank Page v2 */
 :root {
-    /* 深色主题默认值 */
-    --bg-color: #121212;
-    --secondary-bg: #1E1E1E;
-    --text-color: #FF8C00;
-    --border-color: #FF8C00;
-    --card-bg: #2D2D2D;
-    --primary-color: #FF8C00;
-    --primary-color-hover: #FFA500;
-    --accent-color: #FF7300;
+  --bg: #0d1117; --bg-card: #161b22; --bg-secondary: #1c2333;
+  --text: #e6edf3; --text-secondary: #8b949e;
+  --accent: #f0883e; --accent-hover: #f9a65a;
+  --gold: #ffd700; --silver: #c0c0c0; --bronze: #cd7f32;
+  --border: #30363d; --success: #3fb950;
 }
-
 [data-theme="light"] {
-    --bg-color: #FFFFFF;
-    --secondary-bg: #F8F9FA;
-    --text-color: #2C3E50;
-    --border-color: #BDC3C7;
-    --card-bg: #FFFFFF;
-    --primary-color: #3498DB;
-    --accent-color: #27AE60;
+  --bg: #f6f8fa; --bg-card: #ffffff; --bg-secondary: #f6f8fa;
+  --text: #1f2328; --text-secondary: #656d76;
+  --accent: #d4752e;
+  --gold: #b8860b; --silver: #808080; --bronze: #8b4513;
+  --border: #d0d7de;
 }
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
+* { margin:0; padding:0; box-sizing:border-box; }
 body {
-    font-family: 'Arial', sans-serif;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    line-height: 1.6;
-    padding: 20px;
+  font-family: 'Segoe UI', 'PingFang SC', sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; padding: 20px;
 }
+.container { max-width: 800px; margin: 0 auto; }
+header { text-align: center; margin-bottom: 32px; }
+header h1 { font-size: 1.8rem; margin-bottom: 8px; }
+.back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--accent); text-decoration: none; font-size: 0.9rem;
+}
+.back-link:hover { text-decoration: underline; }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
+.rank-table {
+  width: 100%; border-collapse: collapse;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
 }
+.rank-table th {
+  background: var(--bg-secondary); padding: 12px 16px;
+  text-align: left; font-size: 0.85rem; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border);
+}
+.rank-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.rank-table tr:last-child td { border-bottom: none; }
+.rank-table tr:hover { background: var(--bg-secondary); }
 
-/* 头部样式 */
-header {
-    text-align: center;
-    margin-bottom: 30px;
-}
-
-header h1 {
-    font-size: 2.5rem;
-    margin-bottom: 10px;
-    border-bottom: 2px solid var(--primary-color);
-    padding-bottom: 10px;
-    display: inline-block;
-}
-
-.subtitle {
-    font-size: 0.9rem;
-    max-width: 800px;
-    margin: 0 auto 30px;
-    line-height: 1.8;
-}
-
-/* 主题切换按钮 */
-.theme-switch {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-}
-
-#theme-toggle {
-    background: var(--secondary-bg);
-    color: var(--text-color);
-    border: 1px solid var(--border-color);
-    padding: 8px 15px;
-    border-radius: 20px;
-    cursor: pointer;
-}
-
-/* 排行榜容器样式 */
-.rank-container {
-    margin-top: 30px;
-}
-
-.user-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
-}
-
-.user-card {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 20px;
-    transition: transform 0.3s ease;
-}
-
-.user-card:hover {
-    transform: translateY(-5px);
-}
-
-.user-card h3 {
-    font-size: 1.2rem;
-    margin-bottom: 10px;
-}
-
-.user-card p {
-    margin-bottom: 5px;
-}
-
-.user-card .best-score {
-    font-weight: bold;
-    color: var(--primary-color);
-}
-
-.back-btn {
-    display: block;
-    width: 200px;
-    margin: 30px auto 0;
-    padding: 12px;
-    background-color: var(--primary-color);
-    color: var(--bg-color);
-    border: none;
-    border-radius: 5px;
-    font-size: 1rem;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
-
-.back-btn:hover {
-    background-color: var(--primary-color-hover);
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .user-cards {
-        grid-template-columns: 1fr;
-    }
-}
+.rank-medal { font-size: 1.4rem; }
+.rank-num { font-weight: 600; color: var(--text-secondary); }
+.me-row { background: var(--accent-dim, rgba(240,136,62,0.08)); }
+.me-row td { font-weight: 500; }

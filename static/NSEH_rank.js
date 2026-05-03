@@ -1,49 +1,51 @@
-// NSEH_rank.js
-document.addEventListener('DOMContentLoaded', function() {
-    // 主题切换功能
-    const themeToggle = document.getElementById('theme-toggle');
-    const currentTheme = localStorage.getItem('theme');
-    if (currentTheme === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
-    }
+// NSEH Rank v2
+document.addEventListener('DOMContentLoaded', () => {
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
 
-    themeToggle.addEventListener('click', function() {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        const newTheme = currentTheme === 'light' ? null : 'light';
-        document.documentElement.setAttribute('data-theme', newTheme);
+  fetch('/api/get_user_rank')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('rank-body');
+      if (!tbody) return;
 
-        // 可选：保存到 localStorage
-        localStorage.setItem('theme', newTheme);
-    });
+      if (data.users?.length) {
+        data.users.forEach((user, i) => {
+          const tr = document.createElement('tr');
+          const isMe = user.user_id === getUserId();
 
-    // 获取用户数据并渲染排行榜
-    fetch('/api/get_user_rank')
-        .then(response => response.json())
-        .then(data => {
-            renderUserRank(data.users);
-        })
-        .catch(error => {
-            console.error('Error fetching user rank data:', error);
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+          const rankHtml = medal
+            ? `<span class="rank-medal">${medal}</span>`
+            : `<span class="rank-num">${i + 1}</span>`;
+
+          tr.innerHTML = `
+            <td>${rankHtml}</td>
+            <td>${escapeHtml(user.user_name || user.user_id)}</td>
+            <td>${user.best_score !== null ? parseFloat(user.best_score).toFixed(4) : '—'}</td>
+          `;
+          if (isMe) tr.className = 'me-row';
+          tbody.appendChild(tr);
         });
-
-    // 返回进化页面按钮
-    document.getElementById('back-btn').addEventListener('click', function() {
-        window.location.href = '/';
+      } else {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-secondary)">暂无排行数据</td></tr>';
+      }
+    })
+    .catch(() => {
+      document.getElementById('rank-body').innerHTML = '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--danger)">加载失败</td></tr>';
     });
 });
 
-function renderUserRank(users) {
-    const userCardsContainer = document.getElementById('user-cards');
-    userCardsContainer.innerHTML = '';
+function getUserId() {
+  try {
+    const m = document.cookie.match(/session=([^;]+)/);
+    return m ? atob(m[1]).match(/"user_id":"([^"]+)"/)?.[1] : null;
+  } catch { return null; }
+}
 
-    users.forEach(user => {
-        const userCard = document.createElement('div');
-        userCard.className = 'user-card';
-        userCard.innerHTML = `
-            <h3>${user.user_name}</h3>
-            <p>账号: ${user.user_id}</p>
-            <p>最佳适应度: <span class="best-score">${user.best_score !== 'null' ? user.best_score : '无'}</span></p>
-        `;
-        userCardsContainer.appendChild(userCard);
-    });
+function escapeHtml(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
 }
