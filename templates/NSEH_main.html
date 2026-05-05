@@ -15,7 +15,15 @@
     <p>欢迎，{{ session['user_name'] }} ({{ session['user_id'] }})</p>
 </div>
         <div class="theme-switch">
-        <button id="theme-toggle">🌓 切换主题</button>
+        <button id="theme-toggle" class="theme-btn">
+          <svg class="theme-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/>
+          </svg>
+          <svg class="theme-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/>
+          </svg>
+          <span>主题</span>
+        </button>
             <button id="logout-btn" class="logout-btn">退出登录</button>
     </div>
         <p class="subtitle">本项目使用LLM生成启发式，构建启发式种群<br>在预备数据集上执行启发式的算法并与标准解进行比较计算适应度<br>然后根据适应度的排名保留效益最好的启发式
@@ -33,26 +41,6 @@
         <div class="page setting-page active" id="setting-page">
             <div class="section">
                 <h2>进化参数</h2>
-                <!--                    <div class="form-group">-->
-                <!--                        <label for="population_capacity">种群容量</label>-->
-                <!--                        <input type="number" id="population_capacity" value="{{ config.population_capacity }}">-->
-                <!--                    </div>-->
-                <!--                    <div class="form-group">-->
-                <!--                        <label for="num_generations">进化迭代次数</label>-->
-                <!--                        <input type="number" id="num_generations" value="{{ config.num_generations }}">-->
-                <!--                    </div>-->
-                <!--                    <div class="form-group">-->
-                <!--                        <label for="num_mutation">每次突变个数</label>-->
-                <!--                        <input type="number" id="num_mutation" value="{{ config.num_mutation }}">-->
-                <!--                    </div>-->
-                <!--                    <div class="form-group">-->
-                <!--                        <label for="num_hybridization">参与交配的启发式数</label>-->
-                <!--                        <input type="number" id="num_hybridization" value="{{ config.num_hybridization }}">-->
-                <!--                    </div>-->
-                <!--                    <div class="form-group">-->
-                <!--                        <label for="num_reflection">参与反思的启发式数</label>-->
-                <!--                        <input type="number" id="num_reflection" value="{{ config.num_reflection }}">-->
-                <!--                    </div>-->
                 <div class="form-row">
                     <div class="form-group inline">
                         <label for="population_capacity">种群容量</label>
@@ -90,15 +78,35 @@
                     <input type="text" id="base_url" value="{{ config.base_url }}">
                 </div>
                 <div class="form-group">
-                    <label for="llm_model">LLM_MODEL</label>
-                    <input type="text" id="llm_model" value="{{ config.llm_model }}">
+                    <label for="llm_model">LLM模型选单</label>
+                    <div class="llm-selector">
+                        <select id="llm_model_select">
+                            <!-- 由JS动态加载 -->
+                        </select>
+                        <input type="text" id="llm_model_custom" placeholder="自定义模型名称" style="display:none;">
+                    </div>
+                    <div class="form-hint" id="llm_model_hint">选择预设或输入自定义模型名</div>
                 </div>
             </div>
 
             <div class="section">
                 <h2>问题情景</h2>
+                <div class="form-row" style="display:flex;gap:10px;align-items:flex-end;margin-bottom:16px;">
+                    <div class="form-group inline" style="flex:1;">
+                        <label for="problem_selector">选择问题情景</label>
+                        <select id="problem_selector" onchange="onProblemChange()">
+                            <!-- 由JS动态加载 -->
+                        </select>
+                    </div>
+                    <button class="self-adapt-btn" id="self-adapt-btn">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/>
+                      </svg>
+                      <span>场景自适应</span>
+                    </button>
+                </div>
                 <div class="form-group">
-                    <label for="problem">问题情景</label>
+                    <label for="problem">问题情景描述</label>
                     <textarea id="problem">{{ config.problem }}</textarea>
                 </div>
                 <div class="form-group">
@@ -135,8 +143,8 @@
                 <div class="form-group">
                     <label for="ascend">进化方向</label>
                     <select id="ascend">
-                        <option value="true">适应度较小</option>
-                        <option value="false">适应度较大</option>
+                        <option value="true">适应度越小越好</option>
+                        <option value="false">适应度越大越好</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -163,14 +171,31 @@
                 </div>
             </div>
 
-            <button class="start-btn" id="start-evolution-btn">开始进化</button>
+            <div style="display:flex;gap:12px;">
+                <button class="start-btn" id="start-evolution-btn" style="flex:3;">开始进化</button>
+                <button class="load-pop-btn" id="load-population-btn" style="flex:1;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+                  </svg>
+                  <span>加载种群续训</span>
+                </button>
+            </div>
         </div>
 
         <!-- 进化页面 -->
         <div class="page evolution-page" id="evolution-page">
             <div class="evolution-header">
-                <h2>进化过程</h2>
-                <p class="page-description">动态呈现各迭代启发式种群及其中生成的启发式</p>
+                <div class="evolution-header-left">
+                    <h2>进化过程</h2>
+                    <p class="page-description">动态呈现各迭代启发式种群及其中生成的启发式</p>
+                </div>
+                <div class="evolution-header-right">
+                    <div class="scenario-badge" id="scenario-badge">
+                        <span class="scenario-label">情景</span>
+                        <span class="scenario-name" id="scenario-name-display">加载中...</span>
+                    </div>
+                    <div class="evolution-timer" id="evolution-timer"></div>
+                </div>
             </div>
             <input type="hidden" id="current_population_index" value="0">
             <div class="evolution-layout">
@@ -180,7 +205,7 @@
             <div class="heuristic-details-container" id="heuristic-details-container">
                 <div class="heuristic-details-card">
                     <div class="details-header">
-                        <h3>启发式详情</h3>
+                        <h3 id="heuristic-detail-title">启发式详情</h3>
                         <button class="close-btn" onclick="closeDetailsCard()">关闭</button>
                     </div>
                     <div class="details-content">
@@ -198,7 +223,6 @@
                         </div>
                         <div class="detail-item">
                             <h4>算法代码</h4>
-<!--                            <pre id="detail-algorithm"></pre>-->
                                 <div class="code-container">
                                     <pre id="detail-algorithm"></pre>
                                     <button class="copy-btn" onclick="copyAlgorithm()">复制</button>
@@ -214,6 +238,12 @@
                 <button class="control-btn pause-btn" id="pause-evolution-btn">进化暂停</button>
                 <button class="control-btn resume-btn" id="resume-evolution-btn">进化继续</button>
                 <button class="control-btn altprompt-btn" id="edit-prompt-btn">用户提示词</button>
+                <button class="control-btn tree-btn" id="show-feature-tree-btn">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/>
+                  </svg>
+                  特征树
+                </button>
                 <button class="control-btn stop-btn" id="stop-evolution-btn">进化终止</button>
             </div>
         </div>
@@ -222,16 +252,180 @@
         <div class="page results-page" id="results-page">
             <div class="results-header">
                 <h2>进化结果</h2>
-                <p class="page-description">以折线图呈现进化过程中历代种群启发式的最优适应度</p>
+                <div class="chart-tabs">
+                    <div class="chart-tab active" data-chart="line" onclick="switchChart('line')">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+                      <span>历代最优</span>
+                    </div>
+                    <div class="chart-tab" data-chart="multi" onclick="switchChart('multi')">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+                      <span>最优/均值/方差</span>
+                    </div>
+                    <div class="chart-tab" data-chart="top3" onclick="switchChart('top3')">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721A7.456 7.456 0 0112 2.25c1.16 0 2.27.13 3.31.38M5.25 9.728h.01m0 0a.01.01 0 01-.01-.01m13.5-5.492c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0h.01a.01.01 0 00.01-.01"/></svg>
+                      <span>前三条形</span>
+                    </div>
+                    <div class="chart-tab" data-chart="all" onclick="switchChart('all')">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                      <span>全部启发式</span>
+                    </div>
+                    <div class="chart-tab" data-chart="tokens" onclick="switchChart('tokens')">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      <span>Token消耗</span>
+                    </div>
+                </div>
             </div>
 
-            <div class="chart-container">
+            <div class="chart-container" id="chart-container-main">
                 <canvas id="results-chart"></canvas>
+            </div>
+
+            <div class="chart-container" id="chart-container-secondary" style="margin-top:12px;height:300px;display:none;">
+                <canvas id="top3-chart"></canvas>
             </div>
 
             <button class="open-results-btn" id="open-results-btn">打开结果目录</button>
             <button class="open-rank-btn" id="open-rank-btn">查看用户排行榜</button>
         </div>
+    </div>
+</div>
+
+<!-- 种群加载弹窗 -->
+<div class="modal-overlay" id="load-population-modal" style="display:none;">
+    <div class="modal-card" style="max-width: 800px;">
+        <div class="details-header">
+            <h3>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/>
+              </svg>
+              加载已有种群
+            </h3>
+            <button class="close-btn" onclick="closeLoadPopulationModal()">关闭</button>
+        </div>
+        <p class="modal-desc">选择要加载的种群文件，NSEH 将从该代继续进化。</p>
+        
+        <div class="form-group">
+            <label>问题目录：<span id="load-pop-path-display" style="color:var(--accent);">problems/</span></label>
+            <button class="browse-btn" onclick="listSavedPopulations()" style="margin-top:6px;padding:6px 14px;font-size:0.85rem;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/>
+              </svg>
+              扫描刷新
+            </button>
+        </div>
+        
+        <div id="population-list-container" style="max-height:400px;overflow-y:auto;">
+            <div class="empty-heuristics" id="population-list-loading">正在加载已保存的种群...</div>
+            <div id="population-list" style="display:none;"></div>
+            <div class="empty-heuristics" id="population-list-empty" style="display:none;">暂无已保存的种群</div>
+        </div>
+        
+        <div id="load-population-summary" style="display:none;margin-top:16px;padding:16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);"></div>
+    </div>
+</div>
+
+<!-- 场景自适应弹窗 -->
+<div class="modal-overlay" id="self-adapt-modal" style="display:none;">
+    <div class="modal-card">
+        <div class="details-header">
+            <h3>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/>
+              </svg>
+              场景自适应
+            </h3>
+            <button class="close-btn" onclick="closeSelfAdaptModal()">关闭</button>
+        </div>
+        <p class="modal-desc">描述你想要的组合优化问题场景，AI将自动生成问题组件、数据集制备脚本和评估代码。</p>
+
+        <div class="form-group">
+            <label for="scenario_name_input">场景名称（英文，如 vehicle_routing）</label>
+            <input type="text" id="scenario_name_input" placeholder="my_problem" value="">
+        </div>
+        <div class="form-group">
+            <label for="scenario_desc_input">场景描述</label>
+            <textarea id="scenario_desc_input" rows="6" placeholder="例如：我需要解决一个带有时间窗约束的车辆路径问题（VRPTW），有1个仓库和50个客户节点，每辆车有容量限制，目标是最小化总行驶距离。"></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button class="start-btn" id="generate-scenario-btn" onclick="generateScenario()">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+              </svg>
+              <span>生成场景</span>
+            </button>
+        </div>
+
+        <!-- 生成进度 -->
+        <div class="generate-progress" id="generate-progress" style="display:none;">
+            <div class="progress-steps">
+                <div class="progress-step" id="step-config">
+                  <span class="step-dot">
+                    <svg class="step-pending" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-spinner" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg>
+                    <svg class="step-done" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-error" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </span>
+                  <span class="step-text">生成问题配置...</span>
+                </div>
+                <div class="progress-step" id="step-heuristic">
+                  <span class="step-dot">
+                    <svg class="step-pending" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-spinner" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg>
+                    <svg class="step-done" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-error" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </span>
+                  <span class="step-text">生成缺省启发式...</span>
+                </div>
+                <div class="progress-step" id="step-datagen">
+                  <span class="step-dot">
+                    <svg class="step-pending" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-spinner" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg>
+                    <svg class="step-done" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-error" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </span>
+                  <span class="step-text">生成数据集脚本...</span>
+                </div>
+                <div class="progress-step" id="step-traineval">
+                  <span class="step-dot">
+                    <svg class="step-pending" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-spinner" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg>
+                    <svg class="step-done" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-error" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </span>
+                  <span class="step-text">生成评估代码...</span>
+                </div>
+                <div class="progress-step" id="step-finish">
+                  <span class="step-dot">
+                    <svg class="step-pending" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-spinner" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg>
+                    <svg class="step-done" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg class="step-error" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  </span>
+                  <span class="step-text">完成生成...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="generate-result" id="generate-result" style="display:none;"></div>
+    </div>
+</div>
+</div>
+
+<!-- 特征树弹窗 -->
+<div class="modal-overlay" id="feature-tree-modal" style="display:none;">
+    <div class="modal-card" style="max-width: 900px;">
+        <div class="details-header">
+            <h3>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/>
+              </svg>
+              特征探索树
+            </h3>
+            <button class="close-btn" onclick="closeFeatureTree()">关闭</button>
+        </div>
+        <p class="modal-desc" id="feature-tree-desc">加载特征树数据中...</p>
+        <div id="feature-tree-content" style="max-height:65vh;overflow-y:auto;"></div>
     </div>
 </div>
 

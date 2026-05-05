@@ -21,34 +21,39 @@ class llm_interface():
         self.api_key = api_key
 
 
-    def send_message(self, message_list):
-        completion = self.client.chat.completions.create(
-            model = self.llm_model,
-            messages = message_list,
-            stream = self.if_stream
-        )
+    def send_message(self, message_list, timeout=60):
+        try:
+            completion = self.client.chat.completions.create(
+                model = self.llm_model,
+                messages = message_list,
+                stream = self.if_stream,
+                timeout = timeout
+            )
 
 
-        if self.if_stream:
-            # 若采用流式输出
-            response = []
-            for chunk in completion:
-                content = chunk.choices[0].delta.content or ""
+            if self.if_stream:
+                # 若采用流式输出
+                response = []
+                for chunk in completion:
+                    content = chunk.choices[0].delta.content or ""
 
+                    # 应用Unicode规则化
+                    content = unicodedata.normalize('NFC', content)
+
+                    # 打印回复
+                    # print(content, end="", flush=True)
+                    response.append(content)
+                return ''.join(response)
+            else:
+                # 若非流式输出
+                content = completion.choices[0].message.content
                 # 应用Unicode规则化
                 content = unicodedata.normalize('NFC', content)
-
-                # 打印回复
-                # print(content, end="", flush=True)
-                response.append(content)
-            return ''.join(response)
-        else:
-            # 若非流式输出
-            content = completion.choices[0].message.content
-            # 应用Unicode规则化
-            content = unicodedata.normalize('NFC', content)
-            # print("Assistant: ",content, end="", flush=True)
-            return content
+                # print("Assistant: ",content, end="", flush=True)
+                return content
+        except Exception as e:
+            print(f"[LLM] 调用失败: {e}")
+            return None
 
 
 if __name__ == "__main__":

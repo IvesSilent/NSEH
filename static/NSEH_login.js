@@ -60,6 +60,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') document.getElementById('login-btn').click();
   });
 
+  // ── 密码显示/隐藏切换 ─────────────────────
+  document.querySelectorAll('.password-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      if (!input) return;
+
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+
+      // 切换图标
+      const eyeOpen = btn.querySelector('.eye-open');
+      const eyeSlash = btn.querySelector('.eye-slash');
+      if (eyeOpen) eyeOpen.style.display = isPassword ? 'none' : '';
+      if (eyeSlash) eyeSlash.style.display = isPassword ? '' : 'none';
+
+      btn.setAttribute('aria-label', isPassword ? '隐藏密码' : '显示密码');
+    });
+  });
+
   // 注册
   document.getElementById('register-btn').addEventListener('click', () => {
     const userId = document.getElementById('regUserId').value.trim();

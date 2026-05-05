@@ -7,6 +7,7 @@ import os
 from typing import Dict, List
 import numpy as np
 from core.generator import generator
+from core.tag_memory import TagMemory
 import datetime
 import pickle
 
@@ -157,39 +158,42 @@ class EvolutionFramework:
         good = survivors[:self.num_reflection]
         bad = self.population['heuristics'][-self.num_reflection:]
 
-        self.population['memory']['positive_features'].extend(
-            [h['feature'] for h in good]
-        )
-        self.population['memory']['negative_features'].extend(
-            [h['feature'] for h in bad]
-        )
-
-        # 特征去重（list of lists → tuple → set 去重）
-        def dedup_features(features):
-            seen = set()
-            result = []
-            for f in features:
-                key = tuple(f) if isinstance(f, list) else f
-                if key not in seen:
-                    seen.add(key)
-                    result.append(f)
-            return result
-
-        self.population['memory']['positive_features'] = dedup_features(
-            self.population['memory']['positive_features']
-        )
-        self.population['memory']['negative_features'] = dedup_features(
-            self.population['memory']['negative_features']
-        )
-
-        # 仅保留最后五项
-        self.population['memory']['negative_features'] = \
-            self.population['memory']['negative_features'][-5:]
+        # 使用 TagMemory 管理记忆（场景感知）
+        # 从问题路径推断场景ID
+        scenario_id = "tsp"
+        pp = getattr(self, 'problem_path', '')
+        if pp:
+            prob_dir = os.path.basename(pp.rstrip('/\\'))
+            if prob_dir:
+                scenario_id = prob_dir
+        
+        tag_memory = TagMemory(positive_capacity=20, negative_capacity=12, scenario_id=scenario_id)
+        
+        # 加载现有记忆
+        for feat in self.population['memory']['positive_features']:
+            tag_memory.add_positive(feat)
+        for feat in self.population['memory']['negative_features']:
+            tag_memory.add_negative(feat)
+        
+        # 添加新特征
+        for h in good:
+            feat = h.get('feature', [])
+            if isinstance(feat, list) and feat:
+                tag_memory.add_positive(feat, h.get('objective'))
+        for h in bad:
+            feat = h.get('feature', [])
+            if isinstance(feat, list) and feat:
+                tag_memory.add_negative(feat)
+        
+        # 写回记忆
+        self.population['memory']['positive_features'] = tag_memory.get_positive()
+        self.population['memory']['negative_features'] = tag_memory.get_negative()
 
         self.population['heuristics'] = survivors
         self._save_population(generation + 1)
 
         print(f"种群更新完成 | 当前最佳适应度: {survivors[0]['objective']}")
+        print(f"记忆区: {len(self.population['memory']['positive_features'])}条积极 + {len(self.population['memory']['negative_features'])}条消极")
 
     def run(self):
         self._initialize_population()

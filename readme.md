@@ -14,10 +14,50 @@
   <b>自然选择启发进化</b> · 用 LLM 自动生成 + 进化启发式算法
 </p>
 
+<p align="center">
+  <a href="#v20-新特性">✨ v2.0 新特性</a> ·
+  <a href="#-快速开始">🚀 快速开始</a> ·
+  <a href="#-web-应用使用指南">🌐 前端</a>
+</p>
+
+---
+
+## v2.0 新特性
+
+### 🎨 全面 UI 升级
+
+- **SVG 图标系统**：全部按钮、选项卡、标题的 emoji 替换为 [Heroicons](https://heroicons.com) SVG（MIT 开源），暗色/亮色主题完美匹配
+- **密码可视切换**：登录/注册页密码框内嵌眼睛图标，点击切换明文
+- **智能 Toast 堆叠**：多条通知自动错位排列，旧通知向上推移，避免重叠
+- **弹窗动效**：模态框 fade-in + slide-up 入场动画，支持键盘 `Esc` 关闭
+- **加载动画**：spinner 旋转 SVG 替换静态文字「⏳」
+- **主题图标联动**：Sun/Moon SVG 随主题自动切换
+
+### 🌳 特征探索树
+
+新增「特征树」面板，实时可视化当前种群已探索的启发式策略空间：
+
+- **层级分类**：按「构造型 → 改进型 → 元启发式」三层结构展示问题领域的知识图谱
+- **探索状态**：已出现的标签高亮显示（蓝色），积极/消极特征分别用绿色/红色标记
+- **统计摘要**：标签总数、积极/消极特征数、共现组合数一目了然
+- **高频共现**：自动统计标签组合的出现频率，展示哪些策略常搭配使用
+
+### 🔧 问题修复
+
+- **最优适应度显示修复**：`update_population_data()` 改为扫描所有启发式寻找真正的最优值，而非假设 `heuristics[0]` 已排序
+- **长文本溢出修复**：启发式详情面板中概念文本超出限制时自动滚动
+- **弹窗 CSS 补齐**：`modal-overlay` 和 `modal-card` 类样式完整实现（此前缺失导致弹窗错位）
+- **按钮样式修复**：场景自适应按钮独立样式设计
+
+### ⚙️ 后端增强
+
+- 新增 `GET /api/get_feature_tree` 端点，返回场景分类树、标签统计、共现分析
+
 ---
 
 ## 📑 目录
 
+- [v2.0 新特性](#v20-新特性)
 - [🚀 项目简介](#-项目简介)
 - [🧬 核心概念：启发式种群](#-核心概念启发式种群)
 - [🔄 进化流程](#-进化流程)
@@ -32,7 +72,7 @@
   - [进化设置](#进化设置)
   - [进化过程](#进化过程)
   - [进化结果](#进化结果)
-- [📖 问题情景：TSP](#-问题情景tsp)
+- [📖 支持的问题情景](#-支持的问题情景)
 - [📜 项目来源](#-项目来源)
 
 ---
@@ -147,27 +187,28 @@ CLI 参数在 `start_evo.py` 中直接配置：
 │   ├── prompt_template.py         # 提示词模板模块
 │   ├── generator.py               # 启发式生成器
 │   └── evolution.py               # 进化框架主逻辑
-├── problems/
-│   └── tsp/                       # 示例：旅行商问题 (TSP)
-│       ├── train_eval.py          # 训练评估
-│       ├── test_eval.py           # 测试评估
-│       ├── start_evo.py           # CLI 启动项
-│       ├── heuristic.py           # 缺省启发式
-│       ├── result/                # 生成结果
-│       │   ├── population/        # 各阶段种群 JSON
-│       │   └── best/              # 各阶段最优启发式 JSON
-│       └── datasets/              # 预生成数据集
-├── static/                        # Web 前端静态文件
+├── problems/                      # 问题情景插件
+│   ├── tsp/                       # TSP 旅行商问题
+│   │   ├── train_eval.py          # 训练评估
+│   │   ├── test_eval.py           # 测试评估
+│   │   ├── start_evo.py           # CLI 启动项
+│   │   ├── heuristic.py           # 缺省启发式
+│   │   ├── generate_datasets.py   # 数据集生成器
+│   │   ├── datasets/              # 预生成数据集
+│   │   └── result/                # 生成结果
+│   ├── cvrp/                      # CVRP 容量受限车辆路径问题
+│   ├── knapsack/                  # 0/1 背包问题
+│   ├── pfsp/                      # PFSP 置换流水车间调度
+│   └── maxcut/                    # MaxCut 最大割问题
+├── static/                        # Web 前端
 │   ├── NSEH_login.css/.js
 │   ├── NSEH_main.css/.js
 │   └── NSEH_rank.css/.js
 ├── templates/                     # HTML 模板
-│   ├── NSEH_login.html
-│   ├── NSEH_main.html
-│   └── NSEH_rank.html
-├── app.py                         # Web 应用入口
+├── app.py                         # Web 应用入口 (含错误处理)
 ├── readme.md                      # 本文件
 ├── requirements.txt               # 依赖
+├── nseh.db                        # SQLite 数据库
 ├── user_info.csv                  # 用户账密表
 └── web.bat                        # Windows 启动脚本
 ```
@@ -210,7 +251,7 @@ CLI 参数在 `start_evo.py` 中直接配置：
 
 ### 登录
 
-打开 Web 应用后需登录。账号密码设置在 `user_info.csv` 中：
+打开 Web 应用后需登录。密码框右侧眼睛图标可切换密码可见性。账号密码设置在 `user_info.csv` 中：
 
 | 用户名 | 账号 | 密码 | 用户最优适应度 |
 |:------|:----|:-----|:------------|
@@ -229,6 +270,16 @@ CLI 参数在 `start_evo.py` 中直接配置：
 - 🖱️ **点击启发式卡片** → 查看构成及代码实现
 - ⏯️ **暂停/继续** 进化过程
 - ✏️ **自定义 Prompt 模板** — 当进化陷入瓶颈时，可修改模板突破限制
+- 🌳 **特征树** → 点击「特征树」按钮查看当前种群的策略空间探索状态
+
+#### 特征树面板
+
+点击「特征树」按钮打开交互式知识图谱：
+
+- **层级折叠**：按问题领域预设的分类树展开/收起
+- **标签着色**：蓝色=已探索，绿色=积极特征（高产标签），红色=消极特征（低效标签）
+- **统计栏**：顶部显示标签总数、积极/消极特征数、共现组数
+- **高频组合**：底部展示哪些标签经常搭配出现，为 LLM 提示提供参考
 
 <details>
 <summary>📝 点击查看预设 Prompt 模板</summary>
@@ -274,31 +325,108 @@ distance_matrix是节点的距离矩阵。所有数据均为Numpy数组。
 
 ### 进化结果
 
-- 📈 **实时曲线**：查看各代种群最优适应度变化折线图
+- 📈 **实时曲线**：查看各代种群最优适应度变化折线图（含历代最优、最优/均值/方差、前三条形、全部启发式、Token消耗 五种视图）
 - 🏆 **排行榜**：进化结束后查看系统内各用户的最优适应度排名
 
 ---
 
-## 📖 问题情景：TSP
+## 📖 支持的问题情景
 
-本项目以 **旅行商问题 (TSP)** 为示例情景。如需在其他问题使用本架构，参照 TSP 的实现即可。
+本项目目前支持以下 **5 种组合优化问题情景**，均可通过 Web 端「问题选择」下拉框切换。
 
-### TSP 数据
+### 🛤️ TSP（旅行商问题）
+
+> **目标**：给定一组节点的坐标，找到访问每个节点一次并返回起点的最短路径。
 
 | 数据集 | 位置 | 说明 |
 |:------|:-----|:----|
-| **训练数据** | `problems/tsp/train_data/` | 64 组 TSP100 实例，[0,1]² 空间随机生成（参考 EoH），`.pkl` 格式 |
-| **测试数据** | `problems/tsp/test_data/` | TSP10/20/100/200 实例，`.pkl` 格式 |
+| **训练数据** | `problems/tsp/datasets/` | 64 组 TSP100 实例，[0,1]² 空间随机生成（参考 EoH） |
+| **测试数据** | `problems/tsp/datasets/` | TSP10/20/50/100/200 各 10 组实例 |
 
-### 评估方法 (`problems/tsp/eval.py`)
+- **函数签名**：`select_next_node(current_node, destination_node, unvisited_nodes, distance_matrix) → next_node`
+- **适配函数**：`train_eval.py`（动态评估） / `test_eval.py`（静态评估+计时）
+- **标准解**：Concorde 精确求解器
 
-读取数据 → 加载 Concorde 标准解 → 与启发式结果对比 → 计算适应度。
+---
 
-单独运行可测试当前 `heuristic.py` 在测试集上的性能。
+### 🚚 CVRP（容量受限车辆路径问题）
 
-### 缺省算法 (`problems/tsp/heuristic.py`)
+> **目标**：在车辆容量限制下，为车队规划最短路径，服务所有客户节点。
 
-TSP 的常见启发式算法，可被替换为其他算法。
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练数据** | `problems/cvrp/datasets/` | 64 组 CVRP100 实例，容量 200 |
+| **测试数据** | `problems/cvrp/datasets/` | CVRP50/100/200 各 10 组实例 |
+
+- **函数签名**：`find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list) → next_node`
+- **标准解**：Clarke-Wright 节约算法（参考 EoH 实验设置）
+- **特点**：需考虑容量约束，决策哪个客户下一个服务
+
+---
+
+### 🎒 Knapsack（0/1 背包问题）
+
+> **目标**：在背包容量限制下，从一组物品中选择子集，使总价值最大化。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练数据** | `problems/knapsack/datasets/` | 64 组，150 个物品 |
+| **测试数据** | `problems/knapsack/datasets/` | 50/100/150 个物品各 10 组 |
+
+- **函数签名**：`select_item(current_index, remaining_capacity, weights, values, num_items) → take_item`
+- **标准解**：动态规划精确解
+- **特点**：逐步决策选或不选物品，返回 0/1
+
+---
+
+### 🏭 PFSP（置换流水车间调度问题）
+
+> **目标**：n 个作业在 m 台机器上的流水线调度，使最大完工时间（makespan）最小化。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练数据** | `problems/pfsp/datasets/` | 64 组，20 作业 × 5 机器 |
+| **测试数据** | `problems/pfsp/datasets/` | 10×5 / 20×5 / 50×10 各 10 组 |
+
+- **函数签名**：`select_next_job(unscheduled_jobs, current_schedule, processing_times, num_machines) → next_job`
+- **标准解**：NEH 启发式（EoH 论文标准基线）
+- **特点**：目标是构建作业加工序列，使各机器等待时间最短
+
+---
+
+### ✂️ MaxCut（最大割问题）
+
+> **目标**：将图的节点分为两组，最大化组间边的权重之和。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练数据** | `problems/maxcut/datasets/` | 64 组，100 节点 G-set 风格随机图 |
+| **测试数据** | `problems/maxcut/datasets/` | 50/100/200 节点各 10 组 |
+
+- **函数签名**：`assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition) → side`
+- **标准解**：贪心随机重启 + 多 trials 近似最优
+- **特点**：返回 0 或 1（划分到哪一侧），每次决策一个节点
+
+---
+
+### 🧩 如何添加自定义问题情景
+
+参考以上任一情景的实现，在 `problems/` 下创建新目录，提供以下文件：
+
+```
+problems/<new_problem>/
+├── __init__.py              # 空文件，标记为包
+├── heuristic.py             # 缺省启发式算法
+├── train_eval.py            # 训练评估（必须导出 heuristic_solve_dynamic）
+├── test_eval.py             # 测试评估（必须导出 heuristic_solve_static）
+├── start_evo.py             # CLI 启动脚本
+├── image.py                 # 可视化函数
+├── generate_datasets.py     # 数据集生成脚本
+├── datasets/                # 预生成数据集 (.pkl)
+└── result/                  # 输出目录
+```
+
+然后在 `app.py` 的 `PROBLEM_CONFIG_MAP` 中添加对应配置，Web 端会自动载入。
 
 ---
 

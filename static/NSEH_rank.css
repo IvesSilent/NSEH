@@ -3,6 +3,7 @@
   --bg: #0d1117; --bg-card: #161b22; --bg-secondary: #1c2333;
   --text: #e6edf3; --text-secondary: #8b949e;
   --accent: #f0883e; --accent-hover: #f9a65a;
+  --accent-dim: rgba(240, 136, 62, 0.15);
   --gold: #ffd700; --silver: #c0c0c0; --bronze: #cd7f32;
   --border: #30363d; --success: #3fb950;
 }
@@ -10,6 +11,7 @@
   --bg: #f6f8fa; --bg-card: #ffffff; --bg-secondary: #f6f8fa;
   --text: #1f2328; --text-secondary: #656d76;
   --accent: #d4752e;
+  --accent-dim: rgba(212, 117, 46, 0.15);
   --gold: #b8860b; --silver: #808080; --bronze: #8b4513;
   --border: #d0d7de;
 }
@@ -25,8 +27,10 @@ header h1 { font-size: 1.8rem; margin-bottom: 8px; }
 .back-link {
   display: inline-flex; align-items: center; gap: 6px;
   color: var(--accent); text-decoration: none; font-size: 0.9rem;
+  transition: gap 0.2s;
 }
-.back-link:hover { text-decoration: underline; }
+.back-link:hover { gap: 8px; text-decoration: underline; }
+.back-link svg { flex-shrink: 0; }
 
 .rank-table {
   width: 100%; border-collapse: collapse;
@@ -43,7 +47,13 @@ header h1 { font-size: 1.8rem; margin-bottom: 8px; }
 .rank-table tr:last-child td { border-bottom: none; }
 .rank-table tr:hover { background: var(--bg-secondary); }
 
-.rank-medal { font-size: 1.4rem; }
+.rank-medal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+}
 .rank-num { font-weight: 600; color: var(--text-secondary); }
 .me-row { background: var(--accent-dim, rgba(240,136,62,0.08)); }
 .me-row td { font-weight: 500; }
