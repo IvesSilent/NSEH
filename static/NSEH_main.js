@@ -56,10 +56,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(checkEvolutionStatus, 2000);
   setInterval(updateEvolutionTimer, 1000);
 
-  document.getElementById('logout-btn')?.addEventListener('click', () => {
-    fetch('/api/logout', { method: 'POST' })
-      .then(r => r.json())
-      .then(d => { if (d.status === 'success') window.location.href = '/login'; });
+  // 登出（用户头像下拉和旧按钮均支持）
+  document.querySelectorAll('#logout-btn').forEach(btn => {
+    btn?.addEventListener('click', () => {
+      fetch('/api/logout', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => { if (d.status === 'success') window.location.href = '/login'; });
+    });
   });
 
   document.getElementById('theme-toggle')?.addEventListener('click', () => {
@@ -148,24 +151,97 @@ function restoreCachedConfig() {
 // ── Tab System ─────────────────────────────────
 function initTabs() {
   const tabs = document.querySelectorAll('.tab');
+  const pages = document.querySelectorAll('.page');
   tabs.forEach((tab, i) => {
     tab.addEventListener('click', (e) => {
-      if (tab.id !== 'setting-tab' && !validateSettings()) {
+      if (tab.id !== 'setting-tab' && tab.id !== 'admin-tab' && !validateSettings()) {
         e.preventDefault();
         showToast('请先完成设置再切换页面', 'warning');
         return;
       }
       tabs.forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      pages.forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
-      document.querySelectorAll('.page')[i].classList.add('active');
+      if (pages[i]) pages[i].classList.add('active');
 
       if (tab.id === 'results-tab') {
         setTimeout(() => { renderChart(); renderTop3Chart(); }, 100);
       }
+      if (tab.id === 'admin-tab') {
+        loadAdminData();
+      }
     });
   });
 }
+
+// ── 管理后台 ────────────────────────────────────
+function loadAdminData() {
+  const usersBody = document.getElementById('admin-users-body');
+  const expBody = document.getElementById('admin-experiments-body');
+  if (!usersBody || !expBody) return;
+
+  usersBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-secondary);">加载中...</td></tr>';
+  expBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">加载中...</td></tr>';
+
+  fetch('/api/admin/users')
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'error') {
+        usersBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">' + data.message + '</td></tr>';
+        return;
+      }
+      // 用户列表
+      if (data.users && data.users.length) {
+        usersBody.innerHTML = data.users.map(u => {
+          const roleText = u.role === 'admin' ? '管理员' : '普通用户';
+          return '<tr>' +
+            '<td>' + u.id + '</td>' +
+            '<td>' + escapeHtml(String(u.user_name || '')) + '</td>' +
+            '<td>' + escapeHtml(String(u.user_id || '')) + '</td>' +
+            '<td><span class="role-badge role-' + (u.role || 'user') + '">' + roleText + '</span></td>' +
+            '<td>' + (u.best_score != null ? u.best_score : '-') + '</td>' +
+            '<td>' + (u.exp_count || 0) + '</td>' +
+            '<td>' + (u.created_at || '-') + '</td>' +
+            '</tr>';
+        }).join('');
+      } else {
+        usersBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-secondary);">暂无用户</td></tr>';
+      }
+      // 实验记录
+      if (data.experiments && data.experiments.length) {
+        expBody.innerHTML = data.experiments.map(e => {
+          return '<tr>' +
+            '<td>' + e.id + '</td>' +
+            '<td>' + escapeHtml(String(e.user_name || e.user_id || '')) + '</td>' +
+            '<td><span class="status-badge status-' + (e.status || '') + '">' + (e.status || '') + '</span></td>' +
+            '<td>' + (e.best_objective != null ? e.best_objective : '-') + '</td>' +
+            '<td>' + (e.start_time || '-') + '</td>' +
+            '<td>' + (e.end_time || '-') + '</td>' +
+            '</tr>';
+        }).join('');
+      } else {
+        expBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">暂无实验记录</td></tr>';
+      }
+    })
+    .catch(err => {
+      usersBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+      expBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+    });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ── 管理后台刷新按钮 ────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const refreshBtn = document.getElementById('admin-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadAdminData);
+  }
+});
 
 // ── Validation ─────────────────────────────────
 function validateSettings() {

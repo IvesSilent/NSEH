@@ -12,8 +12,17 @@
     <header>
         <h1>NSEH</h1>
         <div class="user-profile">
-    <p>欢迎，{{ session['user_name'] }} ({{ session['user_id'] }})</p>
-</div>
+            <span class="user-profile-trigger">欢迎，{{ session['user_name'] }}</span>
+            <div class="user-profile-dropdown">
+                <div class="dropdown-header">
+                    <span class="dropdown-username">{{ session['user_name'] }}</span>
+                    <span class="dropdown-role">{{ '管理员' if user_role == 'admin' else '普通用户' }}</span>
+                </div>
+                <div class="dropdown-id">ID: {{ session['user_id'] }}</div>
+                <div class="dropdown-divider"></div>
+                <button id="logout-btn" class="dropdown-logout">退出登录</button>
+            </div>
+        </div>
         <div class="theme-switch">
         <button id="theme-toggle" class="theme-btn">
           <svg class="theme-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -24,16 +33,18 @@
           </svg>
           <span>主题</span>
         </button>
-            <button id="logout-btn" class="logout-btn">退出登录</button>
     </div>
         <p class="subtitle">本项目使用LLM生成启发式，构建启发式种群<br>在预备数据集上执行启发式的算法并与标准解进行比较计算适应度<br>然后根据适应度的排名保留效益最好的启发式
         </p>
     </header>
 
-    <div class="page-tabs">
+    <div class="page-tabs" id="page-tabs">
         <div class="tab active" id="setting-tab">设置</div>
         <div class="tab" id="evolution-tab">进化</div>
         <div class="tab" id="results-tab">结果</div>
+        {% if user_role == 'admin' %}
+        <div class="tab" id="admin-tab">管理</div>
+        {% endif %}
     </div>
 
     <div class="page-content">
@@ -286,6 +297,39 @@
 
             <button class="open-results-btn" id="open-results-btn">打开结果目录</button>
             <button class="open-rank-btn" id="open-rank-btn">查看用户排行榜</button>
+        </div>
+        </div>
+        </div>
+
+        <!-- 管理页面（仅管理员可见） -->
+        <div class="page admin-page" id="admin-page">
+            <div class="admin-header">
+                <h2>管理后台</h2>
+                <p class="page-description">查看所有用户及启发式训练记录</p>
+            </div>
+            <div class="admin-section">
+                <h3>用户列表</h3>
+                <table class="admin-table" id="admin-users-table">
+                    <thead>
+                        <tr><th>ID</th><th>用户名</th><th>账号</th><th>身份</th><th>最优分数</th><th>实验次数</th><th>注册时间</th></tr>
+                    </thead>
+                    <tbody id="admin-users-body">
+                        <tr><td colspan="7" style="text-align:center;color:var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="admin-section">
+                <h3>实验记录</h3>
+                <table class="admin-table" id="admin-experiments-table">
+                    <thead>
+                        <tr><th>实验ID</th><th>用户</th><th>状态</th><th>最优适应度</th><th>开始时间</th><th>结束时间</th></tr>
+                    </thead>
+                    <tbody id="admin-experiments-body">
+                        <tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <button class="open-rank-btn" id="admin-refresh-btn" style="margin-top:16px;">刷新数据</button>
         </div>
     </div>
 </div>

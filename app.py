@@ -303,10 +303,16 @@ def init_db():
             user_id     TEXT UNIQUE NOT NULL,
             password    TEXT NOT NULL,
             best_score  REAL,
+            role        TEXT DEFAULT 'user',
             created_at  TEXT DEFAULT (datetime('now','localtime')),
             updated_at  TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    # 兼容旧表：role 列可能不存在
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+    except Exception:
+        pass
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS experiments (
@@ -360,6 +366,15 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         migrate_csv_to_db(conn)
+
+    # 确保管理员账号存在
+    cursor.execute("SELECT COUNT(*) FROM users WHERE user_id = '000000000'")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            "INSERT INTO users (user_name, user_id, password, role) VALUES (?, ?, ?, ?)",
+            ('管理员', '000000000', '142857', 'admin')
+        )
+        print("[DB] 管理员账号已创建 (000000000)")
 
     conn.commit()
     conn.close()
@@ -1087,6 +1102,7 @@ def user_login():
         if row:
             session['user_id'] = row['user_id']
             session['user_name'] = row['user_name']
+            session['user_role'] = row['role'] if row['role'] else 'user'
             raw_score = row['best_score']
             if raw_score is not None:
                 try:
@@ -1098,7 +1114,7 @@ def user_login():
             user_name = session['user_name']
             user_id = session['user_id']
             user_best_score = session['user_best_score']
-            return jsonify({'status': 'success'})
+            return jsonify({'status': 'success', 'role': row['role'] or 'user'})
         return jsonify({'status': 'error', 'message': '账号或密码错误，请重新输入'}), 401
     except Exception as e:
         print(f"登录错误: {e}")
@@ -1125,6 +1141,8 @@ def user_register():
         uname = data.get('userName', '').strip() or uid
         if not uid or not pwd:
             return jsonify({'status': 'error', 'message': '账号和密码不能为空'}), 400
+        if uid == '000000000':
+            return jsonify({'status': 'error', 'message': '此账号不允许注册'}), 403
         conn = get_db()
         cursor = conn.cursor()
         try:
@@ -1155,7 +1173,8 @@ def index():
             user_best_score = None
     else:
         user_best_score = None
-    return render_template('NSEH_main.html', config=default_config, page='setting')
+    user_role = session.get('user_role', 'user')
+    return render_template('NSEH_main.html', config=default_config, page='setting', user_role=user_role)
 
 
 @app.route('/login')
@@ -1166,17 +1185,49 @@ def login():
 
 @app.route('/evolution')
 def evolution_page():
-    return render_template('NSEH_main.html', config=default_config, page='evolution')
+    user_role = session.get('user_role', 'user')
+    return render_template('NSEH_main.html', config=default_config, page='evolution', user_role=user_role)
 
 
 @app.route('/results')
 def results_page():
-    return render_template('NSEH_main.html', config=default_config, page='results')
+    user_role = session.get('user_role', 'user')
+    return render_template('NSEH_main.html', config=default_config, page='results', user_role=user_role)
 
 
 @app.route('/rank')
 def rank():
     return render_template('NSEH_rank.html')
+
+
+@app.route('/api/admin/users', methods=['GET'])
+def admin_get_users():
+    """管理员：获取所有用户及其实验记录"""
+    if session.get('user_role') != 'admin':
+        return jsonify({'status': 'error', 'message': '无权限'}), 403
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        # 查所有用户
+        cursor.execute("""
+            SELECT u.id, u.user_name, u.user_id, u.role, u.best_score, u.created_at,
+                   (SELECT COUNT(*) FROM experiments e WHERE e.user_id = u.user_id) as exp_count
+            FROM users u ORDER BY u.id
+        """)
+        users = [dict(r) for r in cursor.fetchall()]
+        # 查所有实验
+        cursor.execute("""
+            SELECT e.id, e.user_id, u.user_name, e.config_json, e.start_time, e.end_time,
+                   e.status, e.best_objective
+            FROM experiments e
+            LEFT JOIN users u ON e.user_id = u.user_id
+            ORDER BY e.id DESC LIMIT 100
+        """)
+        experiments = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'users': users, 'experiments': experiments})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/api/save_config', methods=['POST'])
