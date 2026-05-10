@@ -3,3 +3,11 @@ __pycache__/
 *.pyo
 .DS_Store
 .vscode/
+
+# 数据库文件（本地数据不上传）
+nseh.db
+nseh.db-shm
+nseh.db-wal
+
+# 配置文件（含 API Key）
+.config_cache.json
