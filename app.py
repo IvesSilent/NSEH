@@ -1588,37 +1588,45 @@ def update_user_best_score():
     global user_id, user_best_score
     if not user_id or user_best_score is None:
         return
-    with db_lock:
+    for _retry in range(5):
         try:
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("SELECT best_score FROM users WHERE user_id = ?", (user_id,))
-            row = cursor.fetchone()
-            update_needed = False
-            if row is None:
-                update_needed = True
-            else:
-                current = row['best_score']
-                if current is None:
+            with db_lock:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT best_score FROM users WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                update_needed = False
+                if row is None:
                     update_needed = True
                 else:
-                    try:
-                        ubs = float(user_best_score)
-                        if (evolution and evolution.ascend and ubs < current) or \
-                           (evolution and not evolution.ascend and ubs > current):
-                            update_needed = True
-                    except (ValueError, TypeError):
-                        pass
-            if update_needed:
-                cursor.execute(
-                    "UPDATE users SET best_score = ?, updated_at = datetime('now','localtime') WHERE user_id = ?",
-                    (float(user_best_score), user_id)
-                )
-                conn.commit()
-                print(f"用户 {user_id} 最佳适应度更新为 {user_best_score}")
-            conn.close()
+                    current = row['best_score']
+                    if current is None:
+                        update_needed = True
+                    else:
+                        try:
+                            ubs = float(user_best_score)
+                            if (evolution and evolution.ascend and ubs < current) or \
+                               (evolution and not evolution.ascend and ubs > current):
+                                update_needed = True
+                        except (ValueError, TypeError):
+                            pass
+                if update_needed:
+                    cursor.execute(
+                        "UPDATE users SET best_score = ?, updated_at = datetime('now','localtime') WHERE user_id = ?",
+                        (float(user_best_score), user_id)
+                    )
+                    conn.commit()
+                    print(f"用户 {user_id} 最佳适应度更新为 {user_best_score}")
+                conn.close()
+            return
         except Exception as e:
+            err_msg = str(e)
+            if 'database is locked' in err_msg or 'locked' in err_msg:
+                if _retry < 4:
+                    time.sleep(0.5 * (_retry + 1))
+                    continue
             print(f"更新最佳适应度时出错: {e}")
+            return
 
 
 # ── JSON 安全转换 ────────────────────────────────
@@ -1680,45 +1688,59 @@ def update_population_data():
         app.config['population_data'] = population_data
         app.config['current_population_index'] = current_population_index
 
-        # 记录快照（使用 db_lock 防止 SQLite 并发写冲突）
-        with db_lock:
+        # 记录快照（使用重试 + 互斥锁防 SQLite 并发写冲突）
+        conn = None
+        for _retry in range(5):
             try:
-                conn = get_db()
-                cursor = conn.cursor()
-                gen_idx = population_data[current_population_index]['index']
-                status = population_data[current_population_index].get('status', '')
-                best_obj = population_data[current_population_index].get('best_objective')
-                if best_obj == 'null' or best_obj is None:
-                    best_obj = None
-                cursor.execute("""
-                    SELECT id FROM experiments WHERE user_id = ? AND status = 'running'
-                    ORDER BY id DESC LIMIT 1
-                """, (user_id or 'anonymous',))
-                exp_row = cursor.fetchone()
-                if not exp_row:
+                with db_lock:
+                    conn = get_db()
+                    cursor = conn.cursor()
+                    gen_idx = population_data[current_population_index]['index']
+                    status = population_data[current_population_index].get('status', '')
+                    best_obj = population_data[current_population_index].get('best_objective')
+                    if best_obj == 'null' or best_obj is None:
+                        best_obj = None
                     cursor.execute("""
-                        INSERT INTO experiments (user_id, config_json, status) VALUES (?, '{}', 'running')
+                        SELECT id FROM experiments WHERE user_id = ? AND status = 'running'
+                        ORDER BY id DESC LIMIT 1
                     """, (user_id or 'anonymous',))
-                    exp_id = cursor.lastrowid
-                else:
-                    exp_id = exp_row['id']
-                cursor.execute("""
-                    INSERT INTO population_snapshots (experiment_id, generation, status, best_objective, snapshot_json)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (exp_id, gen_idx, status, best_obj,
-                      json.dumps(population_data[current_population_index], ensure_ascii=False, default=str)))
-                for h in evolution.population['heuristics']:
-                    tags = h.get('feature', [])
-                    if isinstance(tags, list) and tags:
-                        idx_pos = h.get('index', 1)
-                        is_pos = idx_pos <= evolution.num_reflection
-                        update_tag_stats(tags, is_pos)
-                        if h['objective'] != np.inf:
-                            update_tag_combo(tags, float(h['objective']), is_pos)
-                conn.commit()
-                conn.close()
+                    exp_row = cursor.fetchone()
+                    if not exp_row:
+                        cursor.execute("""
+                            INSERT INTO experiments (user_id, config_json, status) VALUES (?, '{}', 'running')
+                        """, (user_id or 'anonymous',))
+                        exp_id = cursor.lastrowid
+                    else:
+                        exp_id = exp_row['id']
+                    cursor.execute("""
+                        INSERT INTO population_snapshots (experiment_id, generation, status, best_objective, snapshot_json)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (exp_id, gen_idx, status, best_obj,
+                          json.dumps(population_data[current_population_index], ensure_ascii=False, default=str)))
+                    for h in evolution.population['heuristics']:
+                        tags = h.get('feature', [])
+                        if isinstance(tags, list) and tags:
+                            idx_pos = h.get('index', 1)
+                            is_pos = idx_pos <= evolution.num_reflection
+                            update_tag_stats(tags, is_pos)
+                            if h['objective'] != np.inf:
+                                update_tag_combo(tags, float(h['objective']), is_pos)
+                    conn.commit()
+                    conn.close()
+                    conn = None
+                break  # success
             except Exception as e:
+                if conn:
+                    try: conn.close()
+                    except: pass
+                    conn = None
+                err_msg = str(e)
+                if 'database is locked' in err_msg or 'locked' in err_msg:
+                    if _retry < 4:
+                        time.sleep(0.5 * (_retry + 1))
+                        continue
                 print(f"[DB] 记录快照时出错: {e}")
+                break
     except Exception as e:
         print(f"更新种群数据时出错: {e}")
 
@@ -2011,20 +2033,28 @@ def run_evolution():
         evolution_completed = True
         app.config['evolution_completed'] = True
         update_user_best_score()
-        with db_lock:
+        for _retry in range(5):
             try:
-                conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE experiments SET end_time = datetime('now','localtime'), status = 'completed',
-                        best_objective = ?
-                    WHERE user_id = ? AND status = 'running'
-                """, (evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else None,
-                      user_id or 'anonymous'))
-                conn.commit()
-                conn.close()
+                with db_lock:
+                    conn = get_db()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE experiments SET end_time = datetime('now','localtime'), status = 'completed',
+                            best_objective = ?
+                        WHERE user_id = ? AND status = 'running'
+                    """, (evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else None,
+                          user_id or 'anonymous'))
+                    conn.commit()
+                    conn.close()
+                break
             except Exception as e:
+                err_msg = str(e)
+                if 'database is locked' in err_msg or 'locked' in err_msg:
+                    if _retry < 4:
+                        time.sleep(0.5 * (_retry + 1))
+                        continue
                 print(f"[DB] 更新实验状态出错: {e}")
+                break
     else:
         print("[进化] 被终止或超时")
         evolution_completed = False
