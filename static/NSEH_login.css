@@ -99,6 +99,41 @@ body {
 }
 .form-group input::placeholder { color: var(--text-secondary); opacity: 0.5; }
 
+/* ── Password Show/Hide ────────────────────── */
+.password-wrapper {
+  position: relative;
+}
+.password-wrapper input {
+  padding-right: 40px;
+}
+.password-toggle {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s;
+  border-radius: 4px;
+}
+.password-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.password-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.password-toggle .eye-icon {
+  display: block;
+}
+
 .error-message {
   color: var(--danger);
   font-size: 0.82rem;

@@ -1,0 +1,220 @@
+{
+  "heuristics": [
+    {
+      "concept": "该启发式结合了前瞻性后悔评估与空间-容量感知，采用固定权重平滑融合策略。对于每个候选节点，计算其“未来边际后悔值”——若当前不服务该节点，未来由其他车辆服务它所需的最小绕路成本。同时引入孤立度（到最近未服务节点的距离）和容量紧迫度（需求/剩余容量）作为直接激励项，与负面距离项加权求和。该设计避免了复杂的动态阈值切换，通过固定权重实现稳定高效的决策。当所有非距离指标趋于零时，降级为纯最近邻兜底。",
+      "feature": [
+        "简化后悔前瞻",
+        "孤立度直接激励",
+        "容量紧迫度",
+        "固定权重平滑融合",
+        "最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    depot = 0\n    \n    # 获取可行候选节点（未服务且容量允许）\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 预计算从仓库到各节点的距离\n    dist_from_depot = distance_matrix[depot, :]\n    \n    # 获取所有未服务节点\n    unserved = np.where(remaining_demands)[0]\n    remaining_cap = vehicle_capacity - current_load\n    \n    # 固定权重\n    alpha = 0.3   # 孤立度权重\n    beta = 0.4    # 容量紧迫度权重\n    gamma = 0.2   # 后悔值权重\n    delta = 0.1   # 距离权重（负项）\n    \n    # 计算各候选节点的评分\n    scores = np.zeros(len(feasible))\n    regret_values = np.zeros(len(feasible))\n    isolation_values = np.zeros(len(feasible))\n    urgency_values = np.zeros(len(feasible))\n    \n    for idx, node in enumerate(feasible):\n        node_demand = demand_list[node]\n        \n        # ---- 1. 孤立度：到最近未服务节点的距离 ----\n        min_dist_to_other = float('inf')\n        for other in unserved:\n            if other == node:\n                continue\n            dist = distance_matrix[node, other]\n            if dist < min_dist_to_other:\n                min_dist_to_other = dist\n        isolation = min_dist_to_other if min_dist_to_other != float('inf') else 0\n        isolation_values[idx] = isolation\n        \n        # ---- 2. 容量紧迫度 ----\n        urgency = node_demand / (remaining_cap + 1e-8)\n        urgency_values[idx] = urgency\n        \n        # ---- 3. 后悔值 ----\n        # 计算当前节点到其最近后继的距离\n        min_dist_successor = float('inf')\n        best_successor = -1\n        for other in unserved:\n            if other == node:\n                continue\n            dist = distance_matrix[node, other]\n            if dist < min_dist_successor:\n                min_dist_successor = dist\n                best_successor = other\n        \n        if best_successor != -1:\n            # 当前直接服务成本\n            cost_direct = distance_matrix[current_node, node] + min_dist_successor\n            # 未来最小边际成本：从后继返仓 + 专程从仓库到该节点往返的一半\n            cost_future = distance_matrix[best_successor, depot] + dist_from_depot[node]\n            regret = max(0, cost_future - cost_direct)\n        else:\n            regret = 0\n        regret_values[idx] = regret\n        \n        # ---- 综合评分 ----\n        dist = distance_matrix[current_node, node]\n        # 评分越高优先级越高\n        scores[idx] = alpha * isolation + beta * urgency + gamma * regret - delta * dist\n    \n    # 选择评分最高的节点\n    best_idx = np.argmax(scores)\n    best_node = feasible[best_idx]\n    \n    # 兜底：如果所有非距离指标接近0，使用纯最近邻\n    if (np.max(isolation_values) < 1e-6 and np.max(urgency_values) < 1e-6 and np.max(regret_values) < 1e-6):\n        best_dist = float('inf')\n        best_node = -1\n        for node in feasible:\n            dist = distance_matrix[current_node, node]\n            if dist < best_dist:\n                best_dist = dist\n                best_node = node\n    \n    return int(best_node)",
+      "objective": -868.2384435905706
+    },
+    {
+      "concept": "该启发式采用乘积式双因子修正框架，以原始距离为核心基础，融合归一化最近邻孤立度惩罚与指数衰减容量紧迫度激励。孤立度惩罚使用候选节点到最近其他未服务节点的距离与当前节点到所有候选节点平均距离的比值，经Sigmoid映射至[0,1]区间；容量激励使用1-exp(-需求/剩余容量)形式，在容量紧张时平滑增强。权重参数由剩余容量比单一变量经非线性分段自适应调节：容量充裕时偏孤立度防绕路，容量紧张时偏容量激励促回仓。当所有修正因子趋近零时降级为容量匹配最近邻兜底，确保鲁棒性。",
+      "feature": [
+        "乘积式双因子修正",
+        "归一化最近邻孤立度Sigmoid惩罚",
+        "指数衰减容量紧迫度激励",
+        "非线性分段自适应权重",
+        "连续无阈值决策",
+        "容量匹配最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n\n    # 获取可行候选节点（未服务且容量允许）\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n\n    # 获取未服务节点集合\n    unserved = np.where(remaining_demands)[0]\n    remaining_cap = vehicle_capacity - current_load\n    cap_ratio = remaining_cap / vehicle_capacity if vehicle_capacity > 0 else 0.0\n\n    # 非线性分段自适应权重（容量充裕偏孤立度，容量紧张偏容量激励）\n    if cap_ratio > 0.6:\n        alpha = 0.7 * cap_ratio          # [0.42, 0.7]\n        beta = 0.1 * (1.0 - cap_ratio)   # [0, 0.04]\n    elif cap_ratio < 0.3:\n        alpha = 0.2 * cap_ratio          # [0, 0.06]\n        beta = 0.8 * (1.0 - cap_ratio)   # [0.56, 0.8]\n    else:\n        alpha = 0.4 * cap_ratio          # [0.12, 0.24]\n        beta = 0.4 * (1.0 - cap_ratio)   # [0.16, 0.28]\n\n    # 预计算当前节点到各候选节点的距离\n    dists_cur = distance_matrix[current_node, feasible]\n    avg_dist_cur = np.mean(dists_cur) if len(dists_cur) > 0 else 1.0\n\n    # 计算每个候选节点的最近邻孤立度\n    iso_raw = np.zeros(len(feasible))\n    for idx, node in enumerate(feasible):\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) > 0:\n            iso_raw[idx] = np.min(distance_matrix[node, other_unserved])\n        else:\n            iso_raw[idx] = 0.0\n\n    # 归一化孤立度（除以平均距离消除尺度依赖，截断防极端）\n    norm_iso = iso_raw / (avg_dist_cur + 1e-8)\n    norm_iso = np.clip(norm_iso, 0.0, 3.0)\n\n    # Sigmoid映射孤立度惩罚到[0,1]\n    k = 2.5\n    iso_penalty = 1.0 / (1.0 + np.exp(-k * (norm_iso - 1.0)))\n\n    best_node = -1\n    best_corrected_dist = float('inf')\n    all_factors_small = True\n\n    for idx, node in enumerate(feasible):\n        dist = dists_cur[idx]\n\n        # 指数衰减容量紧迫度激励（容量紧张时显著）\n        if remaining_cap > 0:\n            fill_ratio = demand_list[node] / (remaining_cap + 1e-8)\n            cap_urgency = 1.0 - np.exp(-fill_ratio)\n        else:\n            cap_urgency = 1.0\n\n        # 检查修正因子是否有效\n        if iso_penalty[idx] > 1e-6 or cap_urgency > 1e-6:\n            all_factors_small = False\n\n        # 乘积式双因子修正\n        correction = (1.0 + alpha * iso_penalty[idx]) * (1.0 - beta * cap_urgency)\n        correction = max(correction, 0.1)\n        corrected_dist = dist * correction\n\n        if corrected_dist < best_corrected_dist:\n            best_corrected_dist = corrected_dist\n            best_node = node\n\n    # 兜底：修正因子均无效或未选中时，使用容量匹配最近邻\n    if all_factors_small or best_node == -1:\n        best_node = -1\n        best_match_score = float('inf')\n        for idx, node in enumerate(feasible):\n            dist = dists_cur[idx]\n            # 容量匹配度：需求与剩余容量越接近越好（越接近1）\n            if remaining_cap > 0:\n                match = 1.0 - abs(demand_list[node] - remaining_cap) / (remaining_cap + 1e-8)\n                match = max(match, 0.0)\n            else:\n                match = 0.0\n            # 综合评分：距离越小越好，匹配度越高越好\n            score = dist * (1.0 - 0.3 * match)\n            if score < best_match_score:\n                best_match_score = score\n                best_node = node\n\n    return int(best_node)",
+      "objective": -784.2249856550341
+    },
+    {
+      "concept": "该启发式基于后悔值、孤立度与容量紧迫度的三因子融合，采用加性评分函数实现平滑决策。后悔值采用归一化形式，衡量当前服务候选节点相对于未来由其他车辆服务的边际代价；孤立度计算候选节点到最近未服务节点的距离，反映拓扑孤立性；容量紧迫度使用对数形式激励，在容量紧张时平滑增强。权重参数根据已服务比例和剩余容量比自适应调整，实现从早期空间拓扑引导到后期容量紧急主导的平滑过渡。兜底机制首先尝试容量匹配最近邻，再降级为纯最近邻，避免在极端情况下产生无效决策。所有指标均在O(n)复杂度下完成贪心决策。",
+      "feature": [
+        "归一化后悔值",
+        "孤立度惩罚",
+        "对数容量紧迫度激励",
+        "自适应权重",
+        "加性评分融合",
+        "容量匹配最近邻兜底",
+        "最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    depot = 0\n    \n    # 获取可行候选节点（未服务且容量允许）\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 全局统计\n    unserved = np.where(remaining_demands)[0]\n    n_unserved = len(unserved)\n    n_served = n_nodes - n_unserved\n    served_ratio = n_served / n_nodes if n_nodes > 0 else 0.0\n    remaining_cap = vehicle_capacity - current_load\n    cap_ratio = remaining_cap / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    \n    # 计算候选节点距离\n    dists_cur = distance_matrix[current_node, feasible]\n    avg_dist_cur = np.mean(dists_cur) if len(dists_cur) > 0 else 1.0\n    \n    # 距离仓库的距离\n    dists_depot = distance_matrix[depot, feasible]\n    \n    # 自适应权重\n    alpha = 0.3 + 0.3 * served_ratio        # 孤立度权重\n    beta = 0.2 + 0.5 * (1.0 - cap_ratio)    # 容量紧迫度权重\n    gamma = 0.2 * (1.0 + 0.5 * served_ratio)  # 后悔值权重\n    \n    best_node = -1\n    best_score = float('inf')\n    \n    for idx, node in enumerate(feasible):\n        dist = dists_cur[idx]\n        \n        # ---- 1. 归一化后悔值 ----\n        # 找到除当前候选节点外最近的未服务节点\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) > 0:\n            min_successor_dist = np.min(distance_matrix[node, other_unserved])\n        else:\n            min_successor_dist = 0.0\n        \n        # 直接服务成本 = 当前到该节点的距离 + 该节点到最近后继的距离\n        cost_direct = dist + min_successor_dist\n        \n        # 未来服务成本 = 最近后继到仓库的距离 + 仓库到该节点的距离\n        cost_future = min_successor_dist + dists_depot[idx]\n        \n        # 归一化后悔值\n        regret = max(0, cost_future - cost_direct) / (avg_dist_cur + 1e-8)\n        regret = np.clip(regret, 0.0, 3.0)\n        \n        # ---- 2. 孤立度惩罚 ----\n        if len(other_unserved) > 0:\n            isolation = np.min(distance_matrix[node, other_unserved])\n        else:\n            isolation = 0.0\n        \n        # 归一化孤立度\n        rel_isolation = isolation / (avg_dist_cur + 1e-8)\n        rel_isolation = np.clip(rel_isolation, 0.0, 3.0)\n        \n        # ---- 3. 对数容量紧迫度激励 ----\n        demand = demand_list[node]\n        if remaining_cap > 0:\n            cap_urgency = np.log(1.0 + demand / (remaining_cap + 1e-8))\n        else:\n            cap_urgency = 2.0\n        cap_urgency = np.clip(cap_urgency, 0.0, 2.0)\n        \n        # ---- 综合评分 ----\n        score = dist + alpha * rel_isolation - beta * cap_urgency - gamma * regret\n        score = max(score, 0.0)\n        \n        # 容量匹配奖励：当需求接近剩余容量时，给予额外奖励\n        if remaining_cap > 0:\n            cap_match = 1.0 - abs(demand - remaining_cap) / remaining_cap\n            if cap_match > 0.8:\n                score = score - 0.1 * cap_match * avg_dist_cur\n        \n        if score < best_score:\n            best_score = score\n            best_node = node\n    \n    # 兜底机制\n    if best_node == -1:\n        # 先尝试容量匹配最近邻\n        best_match = -1\n        best_match_ratio = float('inf')\n        for node in feasible:\n            demand = demand_list[node]\n            if remaining_cap > 0:\n                match_ratio = abs(demand - remaining_cap) / remaining_cap\n                if match_ratio < best_match_ratio:\n                    best_match_ratio = match_ratio\n                    best_match = node\n        if best_match != -1 and best_match_ratio < 0.5:\n            best_node = best_match\n        else:\n            # 降级为纯最近邻\n            best_node = feasible[np.argmin(dists_cur)]\n    \n    return int(best_node)",
+      "objective": -780.9567604628219
+    },
+    {
+      "concept": "对数自适应感知评分：本启发式融合对数修正的平滑性与多因子互补性，通过单一连续公式整合距离、孤立度惩罚、局部密度奖励与容量紧急度激励。孤立度采用相对于当前节点到所有候选节点平均距离的归一化值，避免绝对值偏差。密度奖励基于动态阈值半径内的未服务节点比例。容量紧急度使用对数式激励，在容量紧张时平滑增强。权重参数随已服务比例与剩余节点数连续自适应调整，实现从初期空间拓扑引导到后期容量紧急主导的平滑过渡。所有指标无需硬阈值切换，在O(n)复杂度下完成贪心决策，兜底回退至最近邻。",
+      "feature": [
+        "对数自适应感知评分",
+        "归一化孤立度惩罚",
+        "动态密度奖励",
+        "对数容量紧急度激励",
+        "连续自适应权重",
+        "无阈值平滑决策",
+        "最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(remaining_demands)\n    \n    # 获取可行候选节点\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 全局统计\n    unserved = np.where(remaining_demands)[0]\n    n_unserved = len(unserved)\n    n_served = n_nodes - n_unserved\n    served_ratio = n_served / n_nodes if n_nodes > 0 else 0.0\n    remaining_cap = vehicle_capacity - current_load\n    cap_ratio = remaining_cap / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    \n    # 计算当前节点到各候选节点的距离\n    dists_cur = distance_matrix[current_node, feasible]\n    avg_dist_cur = np.mean(dists_cur) if len(dists_cur) > 0 else 1.0\n    \n    # 计算全局平均距离作为密度阈值\n    if n_unserved > 1:\n        total_pair_dist = 0.0\n        pair_count = 0\n        for i in unserved:\n            for j in unserved:\n                if i < j:\n                    total_pair_dist += distance_matrix[i, j]\n                    pair_count += 1\n        global_avg_dist = total_pair_dist / pair_count if pair_count > 0 else 1.0\n    else:\n        global_avg_dist = 1.0\n    density_threshold = global_avg_dist * 0.5\n    \n    # 自适应参数\n    alpha = 0.3 + 0.4 * served_ratio  # 孤立度权重，随服务比例上升\n    beta = 0.5 * np.exp(-3.0 * served_ratio)  # 密度奖励权重，随服务比例衰减\n    gamma = 0.2 + 0.5 * (1.0 - cap_ratio)  # 容量紧急度权重，随容量下降上升\n    \n    best_node = -1\n    best_score = float('inf')\n    \n    for idx, node in enumerate(feasible):\n        dist = dists_cur[idx]\n        \n        # 归一化孤立度：到最近未服务节点的距离 / 当前节点到候选节点平均距离\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) > 0:\n            min_iso_dist = np.min(distance_matrix[node, other_unserved])\n        else:\n            min_iso_dist = 0.0\n        rel_iso = min_iso_dist / (avg_dist_cur + 1e-8)\n        rel_iso = np.clip(rel_iso, 0.0, 3.0)\n        \n        # 局部密度奖励：半径内未服务节点数 / 总未服务节点数\n        if n_unserved > 0:\n            neighbors_in_range = np.sum(distance_matrix[node, other_unserved] <= density_threshold) if len(other_unserved) > 0 else 0\n            density = neighbors_in_range / n_unserved\n        else:\n            density = 0.0\n        \n        # 对数容量紧急度激励\n        demand = demand_list[node]\n        if remaining_cap > 0:\n            cap_urgency = np.log(1.0 + demand / (remaining_cap + 1e-8))\n        else:\n            cap_urgency = 2.0\n        cap_urgency = np.clip(cap_urgency, 0.0, 2.0)\n        \n        # 综合评分\n        score = dist * (1.0 + alpha * rel_iso - beta * density - gamma * cap_urgency)\n        score = max(score, 0.0)\n        \n        if score < best_score:\n            best_score = score\n            best_node = node\n    \n    # 兜底\n    if best_node == -1:\n        best_node = feasible[np.argmin(dists_cur)]\n    \n    return int(best_node)",
+      "objective": -777.538863001944
+    },
+    {
+      "concept": "基于乘积式双因子修正的轻量最近邻启发式。该算法以原始距离为核心，通过单一连续公式融合两个动态因子：归一化最近邻孤立度（候选节点到最近其他未服务节点的距离与当前节点到所有候选节点平均距离的比值）和线性容量奖励（需求量与剩余容量的比值）。权重α和β由剩余容量比单一变量线性自适应：容量充裕时α高，优先处理孤立节点防绕路；容量紧张时β高，激励高效填充促回仓。乘积式融合避免加权求和的量纲冲突，无阈值切换，复杂度O(n)。当双因子趋近0时平滑回落为最近邻兜底。",
+      "feature": [
+        "乘积式双因子修正",
+        "归一化最近邻孤立度",
+        "线性容量奖励",
+        "单一变量自适应权重",
+        "连续无阈值决策",
+        "最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    \n    # 获取可行候选节点\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 获取未服务节点集合\n    unserved = np.where(remaining_demands)[0]\n    remaining_cap = vehicle_capacity - current_load\n    cap_ratio = remaining_cap / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    \n    # 单一变量自适应权重\n    alpha = 0.6 * cap_ratio          # 容量充裕时偏孤立度，范围[0, 0.6]\n    beta = 0.4 * (1.0 - cap_ratio)   # 容量紧张时偏填充，范围[0, 0.4]\n    \n    # 预计算当前节点到各候选节点的距离\n    dists_cur = distance_matrix[current_node, feasible]\n    avg_dist_cur = np.mean(dists_cur) if len(dists_cur) > 0 else 1.0\n    \n    # 计算每个候选节点的最近邻孤立度\n    iso_list = np.zeros(len(feasible))\n    for idx, node in enumerate(feasible):\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) > 0:\n            iso_list[idx] = np.min(distance_matrix[node, other_unserved])\n        else:\n            iso_list[idx] = 0.0\n    \n    # 归一化孤立度（除以当前节点到所有候选节点的平均距离，天然在合理范围）\n    norm_iso = iso_list / (avg_dist_cur + 1e-8)\n    norm_iso = np.clip(norm_iso, 0.0, 3.0)\n    \n    best_node = -1\n    best_corrected_dist = float('inf')\n    \n    for idx, node in enumerate(feasible):\n        dist = dists_cur[idx]\n        \n        # 线性容量奖励（需求量占比，截断至合理范围）\n        fill_ratio = demand_list[node] / (remaining_cap + 1e-8)\n        cap_bonus = min(fill_ratio, 2.0)\n        \n        # 乘积式修正距离\n        correction = (1.0 + alpha * norm_iso[idx]) * (1.0 - beta * cap_bonus)\n        correction = max(correction, 0.1)  # 防止过度修正\n        corrected_dist = dist * correction\n        \n        if corrected_dist < best_corrected_dist:\n            best_corrected_dist = corrected_dist\n            best_node = node\n    \n    # 兜底：若未选中或修正效果不明显，选最近邻\n    if best_node == -1 or (alpha < 0.01 and beta < 0.01):\n        best_node = feasible[np.argmin(dists_cur)]\n    \n    return int(best_node)",
+      "objective": -776.9995268341261
+    },
+    {
+      "concept": "基于路径段边际成本与回仓收益前瞻的启发式。该算法跳出传统逐点贪心选择，引入“路径片段级”决策逻辑。对每个可行候选节点，计算将其加入当前路径段后的边际成本增量，并前瞻评估服务完该节点后立即回仓与继续服务再回仓的预期成本比，形成综合优先级评分。通过动态权重平衡容量紧迫度与路径延展性，主动规划回仓时机而非被动触发，在空间拓扑与容量约束间实现更优的片段级决策。",
+      "feature": [
+        "路径段边际成本",
+        "回仓收益前瞻",
+        "动态容量权重",
+        "片段级决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    depot = 0\n    n_nodes = len(demand_list)\n    \n    # 获取可行候选节点\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 获取所有未服务节点\n    unserved = np.where(remaining_demands)[0]\n    remaining_cap = vehicle_capacity - current_load\n    cap_ratio = remaining_cap / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    \n    # 预计算仓库到各节点的距离\n    dist_from_depot = distance_matrix[depot, :]\n    dist_to_depot = distance_matrix[:, depot]\n    \n    best_node = -1\n    best_score = float('inf')\n    \n    for node in feasible:\n        # 1. 路径段边际成本\n        # 当前路径段：从上次回仓点（假设为仓库）到当前节点再到候选节点\n        # 简化：假设当前路径段起点为仓库（保守估计）\n        # 边际成本 = (仓库->当前节点) + (当前节点->候选节点) - (仓库->当前节点) = 当前节点->候选节点\n        marginal_cost = distance_matrix[current_node, node]\n        \n        # 2. 回仓收益前瞻\n        # 立即回仓成本：服务完候选节点后返回仓库\n        cost_immediate_return = distance_matrix[node, depot] + dist_to_depot[node]\n        \n        # 继续服务再回仓的预期成本：假设继续服务剩余未服务节点中最优的一个\n        # 计算候选节点到最近其他未服务节点的距离\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) > 0:\n            min_dist_to_other = np.min(distance_matrix[node, other_unserved])\n            # 粗略估计：从该其他节点返回仓库\n            expected_other_depot = np.min(distance_matrix[other_unserved, depot])\n            cost_continue = dist_from_depot[node] + min_dist_to_other + expected_other_depot\n        else:\n            cost_continue = cost_immediate_return\n        \n        # 回仓收益比：>1表示继续服务更贵（应回仓），<1表示继续服务更便宜（应继续）\n        return_benefit_ratio = cost_continue / (cost_immediate_return + 1e-8)\n        \n        # 3. 动态容量权重\n        # 容量越紧张，越倾向回仓（即return_benefit_ratio的影响越大）\n        alpha = 0.3 + 0.5 * (1.0 - cap_ratio)  # 容量紧张时alpha大\n        alpha = np.clip(alpha, 0.3, 0.8)\n        \n        # 4. 综合评分：边际成本越小越好，回仓收益比越大越好（越接近回仓时机）\n        # 当return_benefit_ratio > 1时，应选此节点作为回仓前最后一个节点\n        # 使用指数函数使评分对收益比敏感\n        score = marginal_cost * (1.0 + alpha * np.exp(return_benefit_ratio - 1.0))\n        \n        if score < best_score:\n            best_score = score\n            best_node = node\n    \n    # 兜底：若未选中\n    if best_node == -1:\n        dists = distance_matrix[current_node, feasible]\n        best_node = feasible[np.argmin(dists)]\n    \n    return int(best_node)",
+      "objective": -772.4712707249525
+    },
+    {
+      "concept": "两阶段乘积式孤立-容量-后悔修正最近邻启发式。该算法以原始距离为核心，通过两个连续乘积阶段融合三个精简因子。第一阶段引入指数衰减容量紧迫度激励，对距离进行初步缩放，引导容量紧张时高效填充。第二阶段结合归一化最近邻孤立度与简化路径后悔值形成综合拓扑惩罚因子，评估跳过当前节点先服务其最近邻的绕路代价。权重由剩余容量比单一变量自适应调节：容量充裕时偏重拓扑防绕路，容量紧张时偏重容量促回仓。所有因子连续无阈值计算，修正因子趋近零时降级为容量匹配加权最近邻兜底。整个决策在O(n)复杂度下完成。",
+      "feature": [
+        "两阶段乘积式修正",
+        "归一化最近邻孤立度",
+        "简化路径后悔值",
+        "指数衰减容量紧迫度激励",
+        "单一变量自适应权重",
+        "连续无阈值决策",
+        "容量匹配加权最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    depot = 0\n    \n    # 获取可行候选节点\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 全局统计\n    unserved = np.where(remaining_demands)[0]\n    remaining_cap = vehicle_capacity - current_load\n    cap_ratio = remaining_cap / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    \n    # 预计算距离\n    dists_cur = distance_matrix[current_node, feasible]\n    avg_dist_cur = np.mean(dists_cur) if len(dists_cur) > 0 else 1.0\n    dists_from_depot = distance_matrix[depot, :]\n    dists_to_depot = distance_matrix[:, depot]\n    \n    # 单一变量自适应权重\n    # alpha: 拓扑权重，容量充裕时高；beta: 容量权重，容量紧张时高\n    alpha = 0.6 * cap_ratio\n    beta = 0.5 * (1.0 - cap_ratio ** 2)\n    \n    # ---- 1. 计算归一化最近邻孤立度 ----\n    iso_raw = np.zeros(len(feasible))\n    for idx, node in enumerate(feasible):\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) > 0:\n            iso_raw[idx] = np.min(distance_matrix[node, other_unserved])\n        else:\n            iso_raw[idx] = 0.0\n    norm_iso = iso_raw / (avg_dist_cur + 1e-8)\n    norm_iso = np.clip(norm_iso, 0.0, 3.0)\n    \n    # ---- 2. 计算指数衰减容量紧迫度 ----\n    urgency = np.zeros(len(feasible))\n    for idx, node in enumerate(feasible):\n        fill_ratio = demand_list[node] / (remaining_cap + 1e-8)\n        urgency[idx] = 1.0 - np.exp(-fill_ratio)\n        urgency[idx] = np.clip(urgency[idx], 0.0, 1.0)\n    \n    # ---- 3. 计算简化路径后悔值 ----\n    regret_raw = np.zeros(len(feasible))\n    for idx, node in enumerate(feasible):\n        other_unserved = unserved[unserved != node]\n        if len(other_unserved) == 0:\n            continue\n        # 找到node的最近未服务邻居\n        nearest_idx = np.argmin(distance_matrix[node, other_unserved])\n        nearest_other = other_unserved[nearest_idx]\n        \n        # 直接服务成本：当前 -> node -> node的最近邻居\n        cost_direct = dists_cur[idx] + distance_matrix[node, nearest_other]\n        \n        # 跳过成本：当前 -> nearest_other -> node\n        cost_skip = distance_matrix[current_node, nearest_other] + distance_matrix[nearest_other, node]\n        \n        regret_raw[idx] = max(0.0, cost_skip - cost_direct)\n    \n    max_regret = np.max(regret_raw) if np.max(regret_raw) > 0 else 1.0\n    norm_regret = regret_raw / max_regret\n    \n    # ---- 4. 综合拓扑因子 T = 孤立度 + 0.5 * 后悔值 ----\n    topo_score = norm_iso + 0.5 * norm_regret\n    max_topo = np.max(topo_score) if np.max(topo_score) > 0 else 1.0\n    norm_topo = topo_score / max_topo\n    \n    # ---- 5. 检查所有修正因子是否接近零 ----\n    all_factors_small = (np.max(norm_iso) < 1e-6 and np.max(urgency) < 1e-6 and np.max(norm_regret) < 1e-6)\n    \n    # ---- 6. 两阶段乘积式修正 ----\n    best_node = -1\n    best_corrected_dist = float('inf')\n    \n    for idx, node in enumerate(feasible):\n        dist = dists_cur[idx]\n        \n        # 第一阶段：容量紧迫度激励修正\n        dist_stage1 = dist * (1.0 - beta * urgency[idx])\n        dist_stage1 = max(dist_stage1, 0.0)\n        \n        # 第二阶段：拓扑感知惩罚修正\n        correction = 1.0 + alpha * norm_topo[idx]\n        corrected_dist = dist_stage1 * correction\n        \n        if corrected_dist < best_corrected_dist:\n            best_corrected_dist = corrected_dist\n            best_node = node\n    \n    # ---- 7. 兜底：容量匹配加权最近邻 ----\n    if all_factors_small or best_node == -1 or (alpha < 1e-6 and beta < 1e-6):\n        best_node = -1\n        best_match_score = float('inf')\n        for idx, node in enumerate(feasible):\n            dist = dists_cur[idx]\n            if remaining_cap > 0:\n                match = 1.0 - abs(demand_list[node] - remaining_cap) / (remaining_cap + 1e-8)\n                match = max(match, 0.0)\n            else:\n                match = 0.0\n            score = dist * (1.0 - 0.3 * match)\n            if score < best_match_score:\n                best_match_score = score\n                best_node = node\n    \n    return int(best_node)",
+      "objective": -767.4329043704506
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "动态加权最近邻",
+        "孤立度惩罚",
+        "容量紧急度",
+        "自适应权重"
+      ],
+      [
+        "容量感知加权评分",
+        "局部密度因子",
+        "动态权重平衡"
+      ],
+      [
+        "改进最近邻",
+        "容量约束检查"
+      ],
+      [
+        "最小化最大后悔",
+        "自我-他者后悔模型",
+        "容量感知动态加权",
+        "节点易损性评分",
+        "容量修正最近邻兜底"
+      ],
+      [
+        "对数修正距离",
+        "动态自适应权重",
+        "最近邻孤立度",
+        "容量填充率隐式激励",
+        "连续无阈值决策",
+        "最近邻兜底"
+      ],
+      [
+        "孤立度惩罚",
+        "容量紧急度",
+        "局部密度因子",
+        "自适应权重"
+      ],
+      [
+        "简化后悔前瞻",
+        "孤立度直接激励",
+        "容量紧迫度",
+        "固定权重平滑融合",
+        "最近邻兜底"
+      ],
+      [
+        "对数自适应感知评分",
+        "归一化孤立度惩罚",
+        "动态密度奖励",
+        "对数容量紧急度激励",
+        "连续自适应权重",
+        "无阈值平滑决策",
+        "最近邻兜底"
+      ],
+      [
+        "乘积式双因子修正",
+        "归一化最近邻孤立度",
+        "线性容量奖励",
+        "单一变量自适应权重",
+        "连续无阈值决策",
+        "最近邻兜底"
+      ],
+      [
+        "乘积式双因子修正",
+        "归一化最近邻孤立度Sigmoid惩罚",
+        "指数衰减容量紧迫度激励",
+        "非线性分段自适应权重",
+        "连续无阈值决策",
+        "容量匹配最近邻兜底"
+      ],
+      [
+        "归一化后悔值",
+        "孤立度惩罚",
+        "对数容量紧迫度激励",
+        "自适应权重",
+        "加性评分融合",
+        "容量匹配最近邻兜底",
+        "最近邻兜底"
+      ]
+    ],
+    "negative_features": [
+      [
+        "后悔前瞻",
+        "容量紧迫指数激励",
+        "乘积式融合",
+        "连续无阈值决策",
+        "最近邻兜底"
+      ],
+      [
+        "动态分簇引导",
+        "扇区划分",
+        "簇优先级评分",
+        "簇内容量修正最近邻",
+        "跨簇跳转惩罚",
+        "拓扑感知决策"
+      ],
+      [
+        "对数修正距离",
+        "乘积式双因子融合",
+        "归一化最近邻孤立度",
+        "线性容量紧迫度",
+        "双变量联合自适应权重",
+        "连续无阈值决策",
+        "最近邻兜底"
+      ],
+      [
+        "路径平衡性引导",
+        "重心偏离度决策场",
+        "主动探索-深入平衡",
+        "容量动态调制",
+        "孤立节点超奖励识别",
+        "最近邻兜底"
+      ],
+      [
+        "路径段持续性",
+        "资源池化",
+        "段轮廓紧凑度",
+        "段延展代价评估",
+        "段回仓弹性",
+        "容量池化率",
+        "连续无阈值决策",
+        "最近邻兜底"
+      ]
+    ]
+  }
+}

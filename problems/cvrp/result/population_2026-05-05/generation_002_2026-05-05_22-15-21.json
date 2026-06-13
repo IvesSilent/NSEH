@@ -1,0 +1,119 @@
+{
+  "heuristics": [
+    {
+      "concept": "基于“后悔值最小化与插入成本权衡”的启发式：该启发式从当前节点出发，为每个可行客户计算其“后悔值”——即若本次不服务该客户，后续插入该客户到其他路径中所需的最低额外成本（模拟其被推迟服务时的最佳插入代价）。同时结合当前直接服务该客户的成本（当前节点到该客户的距离），计算一个综合评分：直接成本与后悔值的加权差，优先选择那些若不立即服务未来代价会大幅增加的客户（即后悔值最大的客户），同时兼顾当前路径效率。该策略能避免将“难以插入”的客户留到后期，从而降低总路程。若无可行节点则返回-1。  \n{ [后悔值最小化] + [插入成本权衡] + [未来代价估计] + [容量约束]",
+      "feature": [],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    # 获取所有未服务节点（包括当前不可行的，用于计算后悔值）\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n\n    best_node = None\n    best_score = -1e9\n\n    for candidate in feasible_nodes:\n        # 当前直接成本：从当前节点到候选节点的距离\n        direct_cost = distance_matrix[current_node, candidate]\n\n        # 计算候选节点的后悔值：将其推迟到后续路径时的最小插入成本\n        # 模拟该节点被插入到距离其最近的另一个可行路径的起点和终点之间\n        # 插入成本 = d(prev, node) + d(node, next) - d(prev, next)，取最小可能值\n        min_insertion_cost = float('inf')\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            # 假设从仓库出发到other，再回到仓库（简化模拟：只考虑与other组成的路径段）\n            # 插入候选节点到仓库-other路径中：成本 = d(0, candidate) + d(candidate, other) - d(0, other)\n            insertion_cost = distance_matrix[0, candidate] + distance_matrix[candidate, other] - distance_matrix[0, other]\n            if insertion_cost < min_insertion_cost:\n                min_insertion_cost = insertion_cost\n        # 若没有其他未服务节点，则未来插入成本为返回仓库的成本\n        if len(all_unserved) == 1:\n            min_insertion_cost = distance_matrix[candidate, 0]\n\n        # 后悔值 = 最小插入成本 - 直接成本（越大表示推迟越不划算）\n        regret = min_insertion_cost - direct_cost\n\n        # 综合评分：希望直接成本小，后悔值大\n        score = -direct_cost + regret * 2  # 后悔值权重更高\n\n        if score > best_score:\n            best_score = score\n            best_node = candidate\n\n    return best_node if best_node is not None else -1",
+      "objective": -754.3108230924634
+    },
+    {
+      "concept": "**思想概念**：本启发式基于“自适应动态融合与轻量化路径预判”思想。在分析现有15种策略后，发现密度导向（如启发式1）、两步前瞻（如启发式2）和效率比（如启发式3）均有效但各有侧重。本策略从三方面优化：  \n1. **精简融合**：仅保留局部密度势能（衡量进入高密区潜力）与距离-需求比（衡量单位距离服务效率）两项核心指标，通过剩余容量比例动态加权融合，避免参数膨胀。  \n2. **轻量前瞻**：对两步配对评分进行简化——仅计算与最近可行节点的距离（若无则取返回仓库距离），避免复杂投影或聚类，降低计算复杂度。  \n3. **容量刚性调节**：当容量紧张时，对选择大需求客户给予正向激励，加速释放空间，减少后期碎片化风险。  \n该设计在保留关键预测能力的同时大幅削减计算开销，适合实时或大规模场景。",
+      "feature": [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    # 动态权重：剩余容量占比越大，越倾向密度探索；占比越小，越倾向效率\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    # 容量紧张时对选择大需求的正向激励\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n    capacity_stress = 1.0 - cap_ratio\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 局部密度势能：周围未服务节点的距离加权需求之和 / 到当前节点距离\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0  # 自身权重为1\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 3. 轻量两步前瞻：仅检查能否衔接最近的可行节点\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]  # 无后续则返回仓库\n        two_step_dist = dist_now + min_second_dist\n        # 紧凑度奖励：两步总距离越短越好（取负）\n        compact_score = -two_step_dist\n\n        # 4. 容量刚性调节：当容量紧张时，对选择大需求客户给予正向激励\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分：密度、效率、紧凑度、刚性奖励加权求和\n        score = (w_density * density_score * 0.1 +\n                 w_efficiency * efficiency_score * 0.1 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -703.7355283195867
+    },
+    {
+      "concept": "基于“精简密度-效率双指标 + 自适应容量弹性调节”的思想。本启发式在分析16种已有策略后，保留了密度势能（衡量进入高需求区域潜力）和距离-需求比（衡量单位距离服务效率）两项核心指标，通过剩余容量占比动态加权融合，避免参数过多。同时引入轻量两步前瞻：仅检查能否衔接最近可行节点，并以两步总距离作为紧凑度负激励。最后加入容量刚性调节：当容量紧张时对选择大需求客户给予奖励，加速释放空间。整体设计在保持关键预测能力的同时大幅降低计算复杂度，适合实时或大规模CVRP场景。",
+      "feature": [
+        "需求密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    capacity_stress = 1.0 - cap_ratio\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 密度势能\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 3. 轻量两步前瞻\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]\n        compact_score = -(dist_now + min_second_dist)\n\n        # 4. 容量刚性调节\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分\n        score = (w_density * density_score * 0.1 +\n                 w_efficiency * efficiency_score * 0.1 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -703.7355283195867
+    },
+    {
+      "concept": "该启发式基于“自适应动态融合与轻量化路径预判”思想，综合局部密度势能（引导车辆进入高需求区域）、距离-需求比效率（单位距离服务更多需求）和轻量两步前瞻（评估后续衔接紧凑性）三项核心指标，并通过剩余容量占比动态调整各指标权重：容量充裕时侧重密度探索以形成紧凑路线，容量紧张时侧重效率与刚性奖励以加速释放空间。同时引入容量刚性调节机制，在容量紧张时优先选择大需求客户，减少后期碎片化风险。整体设计精简高效，降低计算复杂度，适用于实时或大规模CVRP场景。",
+      "feature": [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    capacity_stress = 1.0 - cap_ratio\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 密度势能\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 3. 轻量两步前瞻\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]\n        compact_score = -(dist_now + min_second_dist)\n\n        # 4. 容量刚性调节\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分\n        score = (w_density * density_score * 0.1 +\n                 w_efficiency * efficiency_score * 0.1 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -703.7355283195867
+    },
+    {
+      "concept": "本启发式基于“精简潜力-效率双核与动态容量权衡”思想。在分析18种已有策略后，保留了局部密度势能（衡量进入高需求区域潜力）和距离-需求比（衡量单位距离服务效率）两项最有效且互补的核心指标，通过剩余容量占比动态加权融合，避免参数膨胀与过拟合。同时引入轻量两步前瞻，仅评估能否衔接最近可行节点以形成紧凑子路径，并以两步总距离作为负向紧凑度奖励。最后加入容量刚性调节，在容量紧张时奖励大需求客户以加速释放空间，减少后期碎片化风险。整体设计在保留关键预测能力的同时大幅降低计算复杂度，避免了复杂聚类、方向计算或随机扰动，适合实时或大规模CVRP场景。",
+      "feature": [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    # 动态权重：容量充裕时侧重密度探索，紧张时侧重效率\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    capacity_stress = 1.0 - cap_ratio\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 局部密度势能：周围未服务节点的距离加权需求之和 / 到当前节点距离\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0  # 自身权重为1\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 3. 轻量两步前瞻：仅检查能否衔接最近可行节点，评估紧凑性\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]  # 无后续则返回仓库\n        compact_score = -(dist_now + min_second_dist)  # 负值，越小越好\n\n        # 4. 容量刚性调节：容量紧张时奖励大需求客户\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分\n        score = (w_density * density_score * 0.1 +\n                 w_efficiency * efficiency_score * 0.1 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -703.7355283195867
+    },
+    {
+      "concept": "基于自适应密度-效率双核与动态容量调控的启发式",
+      "feature": [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    capacity_stress = 1.0 - cap_ratio\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 局部密度势能：周围未服务节点的距离加权需求之和 / 到当前节点距离\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 3. 轻量两步前瞻：仅检查能否衔接最近可行节点，评估紧凑性\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]\n        two_step_dist = dist_now + min_second_dist\n        compact_score = -two_step_dist\n\n        # 4. 容量刚性调节：容量紧张时奖励大需求客户\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分\n        score = (w_density * density_score * 0.1 +\n                 w_efficiency * efficiency_score * 0.1 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -703.7355283195867
+    },
+    {
+      "concept": "基于混合潜能与自适应竞争调节的免疫遗传启发式",
+      "feature": [
+        "局部密度势能",
+        "两步前瞻紧凑性",
+        "容量弹性调节",
+        "邻近竞争抑制",
+        "随机扰动探索"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    n_unserved = len(all_unserved)\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    # 动态容量权重：剩余容量比例越高，越强调密度探索\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1 - cap_ratio\n    w_compact = 0.6 + 0.4 * cap_ratio\n\n    # 预计算未服务节点间平均距离（用于碎片惩罚）\n    avg_pair_dist = 0.0\n    if n_unserved > 1:\n        pair_sum = 0.0\n        for i in range(n_unserved):\n            for j in range(i+1, n_unserved):\n                pair_sum += distance_matrix[all_unserved[i], all_unserved[j]]\n        avg_pair_dist = pair_sum / (n_unserved * (n_unserved - 1) / 2)\n    else:\n        avg_pair_dist = 1.0\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 局部密度势能（加权需求距离倒数之和 / 当前距离）\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / (d + 1e-8)\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 两步前瞻紧凑性：模拟从cand出发最近可行两步（或返回仓库）\n        second_cap = remaining_capacity - demand_list[cand]\n        second_nodes = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_nodes:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_nodes)\n        else:\n            min_second_dist = distance_matrix[cand, 0]\n        two_step = dist_now + min_second_dist\n        compact_score = 1.0 / (two_step + 1e-8)\n\n        # 3. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 4. 邻近竞争抑制：自适应半径内竞争者数量惩罚\n        dists_to_others = [distance_matrix[cand, other] for other in all_unserved if other != cand]\n        if dists_to_others:\n            median_dist = np.median(dists_to_others)\n            radius = median_dist * 0.5\n            competitors = sum(1 for o in feasible_nodes if o != cand and distance_matrix[cand, o] < radius)\n            competition_penalty = competitors * 0.1\n        else:\n            competition_penalty = 0.0\n\n        # 5. 路径碎片化惩罚：选择后剩余节点平均距离相对原始平均距离的增长\n        frag_penalty = 0.0\n        if n_unserved > 2:\n            remaining_after = [i for i in all_unserved if i != cand]\n            n_after = len(remaining_after)\n            if n_after > 1:\n                after_sum = 0.0\n                for i in range(n_after):\n                    for j in range(i+1, n_after):\n                        after_sum += distance_matrix[remaining_after[i], remaining_after[j]]\n                avg_after = after_sum / (n_after * (n_after - 1) / 2)\n                if avg_pair_dist > 0:\n                    frag_ratio = avg_after / avg_pair_dist\n                    frag_penalty = max(0, frag_ratio - 1.0) * 50\n        elif n_unserved == 2:\n            frag_penalty = distance_matrix[cand, 0] * 0.05\n\n        # 6. 容量刚性因子：当剩余容量紧张时奖励大需求客户\n        capacity_stress = 1 - cap_ratio\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分\n        score = (w_density * density_score * 0.08 +\n                 w_efficiency * efficiency_score * 0.08 +\n                 w_compact * compact_score * 120 -\n                 competition_penalty -\n                 frag_penalty +\n                 rigidity_bonus)\n\n        # 7. 随机扰动探索：评分保留20%的微小扰动\n        perturbation = np.random.uniform(0.99, 1.01)\n        score *= perturbation\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -694.5234812746438
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      [
+        "需求密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ]
+    ],
+    "negative_features": [
+      [
+        "需求密度势能",
+        "邻近竞争度惩罚",
+        "容量刚性调节",
+        "自适应半径"
+      ],
+      [
+        "时空势能",
+        "路径平滑度",
+        "动态需求密度",
+        "容量自适应"
+      ],
+      [
+        "贪婪搜索",
+        "最远插入",
+        "容量约束"
+      ]
+    ]
+  }
+}

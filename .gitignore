@@ -3,3 +3,13 @@ __pycache__/
 *.pyo
 .DS_Store
 .vscode/
+.idea/
+venv/
+*.db
+*.db-shm
+*.db-wal
+.config_cache.json
+.cache/
+*.egg-info/
+dist/
+build/

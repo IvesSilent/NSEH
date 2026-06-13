@@ -4,6 +4,9 @@
 import re
 import numpy as np
 
+from core.tag_memory import format_for_prompt, classify_tag
+
+
 class prompt_template():
     def __init__(self, problem, fun_name, fun_args, fun_return, fun_notes):
         self.problem = problem
@@ -76,20 +79,11 @@ class prompt_template():
 
         if positive_features or negative_features:
             condition_prompt += "\n### 研究经验"
+            # 使用分层记忆格式化
             if positive_features:
-                condition_prompt += "\n在我之前的研究过程中，有以下策略标签组合的启发式效果较好：\n"
-                for ft in positive_features:
-                    if isinstance(ft, list):
-                        condition_prompt += f" - {' + '.join(ft)}\n"
-                    else:
-                        condition_prompt += f" - {ft}\n"
+                condition_prompt += "\n" + format_for_prompt(positive_features, "积极经验")
             if negative_features:
-                condition_prompt += "\n在我之前的研究过程中，有以下策略标签组合的启发式效果较差：\n"
-                for ft in negative_features:
-                    if isinstance(ft, list):
-                        condition_prompt += f" - {' + '.join(ft)}\n"
-                    else:
-                        condition_prompt += f" - {ft}\n"
+                condition_prompt += "\n" + format_for_prompt(negative_features, "消极经验")
 
         condition_prompt += "\n### 优化策略\n"
 
@@ -100,13 +94,15 @@ class prompt_template():
         else:
             condition_prompt += self.strategy_OPT
 
-        condition_prompt += self.analyze
-
-        result_prompt = f"接下来，你需要根据你上述思考完成这个新的启发式。\n"
+        # 将分析和生成合并为一个提示词，减少一次LLM调用
+        result_prompt = self.analyze + "\n\n接下来，请直接完成这个新的启发式。\n"
         result_prompt += self.output_requirement
         result_prompt += f"注意，{self.fun_requirement}\n不要提供额外解释"
 
-        return [condition_prompt, result_prompt]
+        # 一次性输出：先分析，后直接给出代码
+        single_prompt = condition_prompt + "\n" + result_prompt
+
+        return [condition_prompt, result_prompt, single_prompt]
 
     def altprompt_get(self):
         return self.fun_requirement, self.strategy_MUT, self.strategy_HYB, self.strategy_OPT, self.analyze

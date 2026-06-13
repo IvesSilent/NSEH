@@ -2,6 +2,7 @@
 # generator.py
 
 from core.prompt_template import prompt_template, get_heuristic
+from core.tag_memory import format_for_prompt, TagMemory
 from core.llm_interface import llm_interface
 import re
 import numpy as np
@@ -63,18 +64,30 @@ class generator():
         return heuristic
 
     def evol_heuristic(self, strategy, parent_heuristics, memory):
-        message_list = []
         positive_features = memory.get('positive_features', [])
         negative_features = memory.get('negative_features', [])
 
         evol_prompt = self.prompt_template.prompt_evolve(
             strategy, parent_heuristics, positive_features, negative_features
         )
-        message_list.append({"role": "user", "content": evol_prompt[0]})
-        response = self.interface.send_message(message_list)
-        message_list.append({"role": "assistant", "content": response})
-        message_list.append({"role": "user", "content": evol_prompt[1]})
-        heuristic_string = self.interface.send_message(message_list)
+        # 使用合并后的单次提示（prompt_evolve 返回 [分析, 生成, 合并]）
+        single_prompt = evol_prompt[2] if len(evol_prompt) > 2 else evol_prompt[0]
+        
+        message_list = [{"role": "user", "content": single_prompt}]
+        start = time.time()
+        heuristic_string = self.interface.send_message(message_list, timeout=60)
+        elapsed = time.time() - start
+        
+        if heuristic_string is None:
+            print(f"[LLM] {strategy} 调用返回空，60秒超时")
+            return {
+                'concept': 'LLM调用失败',
+                'feature': ['失败'],
+                'algorithm': '',
+                'objective': float('inf')
+            }
+            
+        print(f"[LLM] {strategy} 响应耗时 {elapsed:.1f}s")
         heuristic = self.heuristic_generator(heuristic_string)
         return heuristic
 

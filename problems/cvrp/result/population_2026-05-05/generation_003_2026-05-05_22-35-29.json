@@ -1,0 +1,156 @@
+{
+  "heuristics": [
+    {
+      "concept": "基于“后悔值-密度势能自适应权衡”的启发式优化版本：该启发式融合后悔值最小化与密度势能引导，通过动态权重平衡短期路径效率与长期区域覆盖潜力。针对原有启发式_12进行三方面优化：1) 简化后悔值计算为仅考虑与最近未服务节点的插入成本，降低计算复杂度；2) 引入容量刚性调节，在容量紧张时奖励大需求客户以减少碎片化；3) 调整权重分配，使后悔值在容量紧张时主导决策，密度势能在容量充裕时主导，并加入轻量两步前瞻增强紧凑性评估。整体结构精简，计算高效，自适应性强。",
+      "feature": [
+        "后悔值最小化",
+        "密度势能引导",
+        "动态容量权重",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_regret = cap_ratio\n    w_density = 1.0 - cap_ratio\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n    capacity_stress = 1.0 - cap_ratio\n\n    best_node = None\n    best_score = -1e9\n\n    # 预计算每个未服务节点的密度势能\n    density_map = {}\n    for node in all_unserved:\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == node:\n                density_sum += demand_list[node] * 0.5\n            else:\n                d = distance_matrix[node, other]\n                density_sum += demand_list[other] / (d + 1e-8)\n        density_map[node] = density_sum\n\n    for candidate in feasible_nodes:\n        direct_cost = distance_matrix[current_node, candidate]\n\n        # 简化后悔值：仅考虑与最近未服务节点的插入成本\n        min_insertion_cost = float('inf')\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            insertion_cost = distance_matrix[0, candidate] + distance_matrix[candidate, other] - distance_matrix[0, other]\n            if insertion_cost < min_insertion_cost:\n                min_insertion_cost = insertion_cost\n        if len(all_unserved) == 1:\n            min_insertion_cost = distance_matrix[candidate, 0]\n        regret = min_insertion_cost - direct_cost\n        regret_score = max(regret, 0)\n\n        # 密度势能\n        density_score = density_map.get(candidate, 0.0) / (direct_cost + 1e-8)\n\n        # 轻量两步前瞻\n        second_cap = remaining_capacity - demand_list[candidate]\n        second_candidates = [j for j in feasible_nodes if j != candidate and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[candidate, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[candidate, 0]\n        lookahead_score = -(direct_cost + min_second_dist)\n\n        # 容量刚性调节\n        demand_share = demand_list[candidate] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分\n        score = (w_regret * regret_score * 0.4 +\n                 w_density * density_score * 0.3 +\n                 lookahead_score * 0.2 +\n                 rigidity_bonus * 0.1)\n\n        if score > best_score:\n            best_score = score\n            best_node = candidate\n\n    return best_node if best_node is not None else -1",
+      "objective": -778.1484887593731
+    },
+    {
+      "concept": "基于“后悔值-密度势能自适应权衡”的启发式：该启发式融合了后悔值最小化与密度势能导向，通过动态权重平衡短期路径效率与长期区域覆盖潜力。首先计算每个可行客户相对于未服务集合的后悔值，衡量推迟服务的代价；同时计算该客户所在区域的密度势能，反映服务该客户后进入高需求区域的可能性。结合当前容量紧张程度，动态调整后悔值与密度势能的权重：容量充足时偏向密度势能以引导车辆进入需求密集区，容量紧张时偏向后悔值以避免未来高插入成本。此外加入轻量一步前瞻，评估选择该客户后对下一节点选择的影响，避免局部最优。整体设计保留了两者的核心优势，同时通过自适应机制减少参数调优需求。",
+      "feature": [
+        "后悔值最小化",
+        "密度势能引导",
+        "自适应容量权重",
+        "轻量一步前瞻",
+        "动态权衡"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    cap_ratio = remaining_capacity / vehicle_capacity  # 容量充裕度\n    w_regret = cap_ratio  # 容量紧张时后悔值权重高\n    w_density = 1.0 - cap_ratio  # 容量充裕时密度势能权重高\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    best_node = None\n    best_score = -1e9\n\n    for candidate in feasible_nodes:\n        direct_cost = distance_matrix[current_node, candidate]\n\n        # --- 后悔值计算 ---\n        min_insertion_cost = float('inf')\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            insertion_cost = distance_matrix[0, candidate] + distance_matrix[candidate, other] - distance_matrix[0, other]\n            if insertion_cost < min_insertion_cost:\n                min_insertion_cost = insertion_cost\n        if len(all_unserved) == 1:\n            min_insertion_cost = distance_matrix[candidate, 0]\n        regret = min_insertion_cost - direct_cost\n        regret_score = regret if regret > 0 else 0  # 只取正后悔值\n\n        # --- 密度势能计算 ---\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            d = distance_matrix[candidate, other]\n            if d > 1e-8:\n                density_sum += demand_list[other] / d\n            else:\n                density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (direct_cost + 1e-8)\n\n        # --- 轻量一步前瞻 ---\n        next_capacity = remaining_capacity - demand_list[candidate]\n        next_feasible = [j for j in feasible_nodes if j != candidate and demand_list[j] <= next_capacity]\n        if next_feasible:\n            min_next_dist = min(distance_matrix[candidate, j] for j in next_feasible)\n        else:\n            min_next_dist = distance_matrix[candidate, 0]\n        lookahead_score = -(direct_cost + min_next_dist)\n\n        # --- 综合评分 ---\n        score = (w_regret * regret_score * 0.4 +\n                 w_density * density_score * 0.3 +\n                 lookahead_score * 0.3)\n\n        if score > best_score:\n            best_score = score\n            best_node = candidate\n\n    return best_node if best_node is not None else -1",
+      "objective": -765.1228223062187
+    },
+    {
+      "concept": "基于“后悔值最小化与插入成本权衡”的启发式：该启发式从当前节点出发，为每个可行客户计算其“后悔值”——即若本次不服务该客户，后续插入该客户到其他路径中所需的最低额外成本（模拟其被推迟服务时的最佳插入代价）。同时结合当前直接服务该客户的成本（当前节点到该客户的距离），计算一个综合评分：直接成本与后悔值的加权差，优先选择那些若不立即服务未来代价会大幅增加的客户（即后悔值最大的客户），同时兼顾当前路径效率。该策略能避免将“难以插入”的客户留到后期，从而降低总路程。若无可行节点则返回-1。  \n{ [后悔值最小化] + [插入成本权衡] + [未来代价估计] + [容量约束]",
+      "feature": [],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    # 获取所有未服务节点（包括当前不可行的，用于计算后悔值）\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n\n    best_node = None\n    best_score = -1e9\n\n    for candidate in feasible_nodes:\n        # 当前直接成本：从当前节点到候选节点的距离\n        direct_cost = distance_matrix[current_node, candidate]\n\n        # 计算候选节点的后悔值：将其推迟到后续路径时的最小插入成本\n        # 模拟该节点被插入到距离其最近的另一个可行路径的起点和终点之间\n        # 插入成本 = d(prev, node) + d(node, next) - d(prev, next)，取最小可能值\n        min_insertion_cost = float('inf')\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            # 假设从仓库出发到other，再回到仓库（简化模拟：只考虑与other组成的路径段）\n            # 插入候选节点到仓库-other路径中：成本 = d(0, candidate) + d(candidate, other) - d(0, other)\n            insertion_cost = distance_matrix[0, candidate] + distance_matrix[candidate, other] - distance_matrix[0, other]\n            if insertion_cost < min_insertion_cost:\n                min_insertion_cost = insertion_cost\n        # 若没有其他未服务节点，则未来插入成本为返回仓库的成本\n        if len(all_unserved) == 1:\n            min_insertion_cost = distance_matrix[candidate, 0]\n\n        # 后悔值 = 最小插入成本 - 直接成本（越大表示推迟越不划算）\n        regret = min_insertion_cost - direct_cost\n\n        # 综合评分：希望直接成本小，后悔值大\n        score = -direct_cost + regret * 2  # 后悔值权重更高\n\n        if score > best_score:\n            best_score = score\n            best_node = candidate\n\n    return best_node if best_node is not None else -1",
+      "objective": -754.3108230924634
+    },
+    {
+      "concept": "基于“后悔-效率双核动态权衡与容量预测”的启发式：该启发式融合了后悔值最小化的远期代价预估和密度-效率的局部优化。核心创新在于：1）将后悔值计算从模拟单点插入扩展为“插入成本与直接成本的差异”，并引入密度势能作为修正因子，避免仅依赖距离造成的短视；2）采用双阶段决策：先根据后悔值筛选高潜力候选，再结合局部密度、效率比和两步紧凑度进行精细评分，实现全局与局部的平衡；3）加入容量压力感知的刚性调节，在容量紧张时优先处理大需求客户以减少碎片化。该设计保留了后悔值对“难插入节点”的敏感度，同时通过密度势能增强空间感知能力。",
+      "feature": [
+        "后悔值最小化",
+        "密度势能修正",
+        "距离-需求比效率",
+        "动态容量加权",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    # 容量压力系数\n    cap_ratio = remaining_capacity / vehicle_capacity\n    capacity_stress = 1.0 - cap_ratio\n\n    # 预计算每个未服务节点的密度势能（对所有其他未服务节点）\n    density_map = {}\n    for node in all_unserved:\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == node:\n                density_sum += demand_list[node] * 0.5  # 自身权重\n            else:\n                d = distance_matrix[node, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_map[node] = density_sum\n\n    best_node = None\n    best_score = -1e9\n\n    for candidate in feasible_nodes:\n        # 1. 直接成本\n        direct_cost = distance_matrix[current_node, candidate]\n\n        # 2. 后悔值计算：模拟推迟后最小插入成本 - 直接成本\n        min_insertion_cost = float('inf')\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            insertion_cost = distance_matrix[0, candidate] + distance_matrix[candidate, other] - distance_matrix[0, other]\n            if insertion_cost < min_insertion_cost:\n                min_insertion_cost = insertion_cost\n        if len(all_unserved) == 1:\n            min_insertion_cost = distance_matrix[candidate, 0]\n        regret = min_insertion_cost - direct_cost\n\n        # 3. 密度势能修正：当前节点的密度势能（用于增强后悔值的感知）\n        density_energy = density_map.get(candidate, 0.0)\n\n        # 4. 效率比：需求/距离\n        efficiency = demand_list[candidate] / (direct_cost + 1e-8)\n\n        # 5. 两步紧凑性\n        second_cap = remaining_capacity - demand_list[candidate]\n        second_candidates = [j for j in feasible_nodes if j != candidate and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[candidate, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[candidate, 0]\n        two_step_cost = direct_cost + min_second_dist\n        compactness = -two_step_cost\n\n        # 6. 容量刚性调节\n        total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n        demand_share = demand_list[candidate] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分：后悔值（高权重）+ 密度势能（低权重）+ 效率 + 紧凑度 + 刚性\n        score = (regret * 1.5 +    # 后悔值主导向\n                 density_energy * 0.01 +  # 密度修正\n                 efficiency * 0.1 +\n                 compactness * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = candidate\n\n    return best_node if best_node is not None else -1",
+      "objective": -751.3219136890904
+    },
+    {
+      "concept": "基于“轻量后悔值-密度势能弹性协同”的启发式。本启发式融合后悔值最小化与局部密度势能，通过单一弹性系数（基于剩余容量占比）动态平衡两者权重：容量充裕时侧重密度势能以进入高需求区域，容量紧张时侧重后悔值以避免高插入成本。将后悔值计算简化为仅考虑与最近未服务节点的插入成本，降低复杂度；密度势能采用最近邻近似（K=5），避免全扫描。同时保留轻量两步前瞻评估紧凑性，加入容量匹配平衡项确保负载均衡。整体结构精简，参数自适应，计算高效。",
+      "feature": [
+        "后悔值最小化",
+        "局部密度近似",
+        "动态容量弹性权重",
+        "轻量两步前瞻",
+        "容量匹配平衡"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    cap_ratio = remaining_capacity / vehicle_capacity\n    elasticity = 1.0 - cap_ratio  # 0~1，越大越紧张\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n\n    # 局部密度近似：仅考虑最近K个未服务节点\n    K = min(5, len(all_unserved) - 1) if len(all_unserved) > 1 else 1\n    density_map = {}\n    for node in all_unserved:\n        dists = [(distance_matrix[node, other], other) for other in all_unserved if other != node]\n        dists.sort(key=lambda x: x[0])\n        nearest = dists[:K]\n        density_sum = 0.0\n        for d, other in nearest:\n            density_sum += demand_list[other] / (d + 1e-8)\n        density_map[node] = density_sum\n\n    best_node = None\n    best_score = -1e9\n\n    for candidate in feasible_nodes:\n        direct_cost = distance_matrix[current_node, candidate]\n        if direct_cost < 1e-8:\n            continue\n\n        # 1. 后悔值：简化版，仅考虑与最近未服务节点的插入成本\n        min_insertion_cost = float('inf')\n        for other in all_unserved:\n            if other == candidate:\n                continue\n            insertion_cost = distance_matrix[0, candidate] + distance_matrix[candidate, other] - distance_matrix[0, other]\n            if insertion_cost < min_insertion_cost:\n                min_insertion_cost = insertion_cost\n        if len(all_unserved) == 1:\n            min_insertion_cost = distance_matrix[candidate, 0]\n        regret = max(min_insertion_cost - direct_cost, 0)\n\n        # 2. 局部密度势能（基于近邻近似）\n        density_score = density_map.get(candidate, 0.0) / (direct_cost + 1e-8)\n\n        # 3. 轻量两步前瞻紧凑度\n        second_cap = remaining_capacity - demand_list[candidate]\n        second_candidates = [j for j in feasible_nodes if j != candidate and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[candidate, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[candidate, 0]\n        two_step_cost = direct_cost + min_second_dist\n        compact_score = -two_step_cost\n\n        # 4. 负载匹配平衡\n        remaining_demand_after = total_remaining_demand - demand_list[candidate]\n        remaining_cap_after = remaining_capacity - demand_list[candidate]\n        if remaining_demand_after > 0:\n            match_ratio = remaining_cap_after / remaining_demand_after\n        else:\n            match_ratio = 1.0\n        balance_score = 1.0 - abs(match_ratio - 1.0)\n\n        # 综合评分：弹性系数控制后悔值与密度权重，紧张时偏后悔值，宽松时偏密度\n        w_regret = 0.5 * elasticity\n        w_density = 0.5 * (1.0 - elasticity)\n        score = (w_regret * regret * 0.4 +\n                 w_density * density_score * 0.3 +\n                 compact_score * 0.2 +\n                 balance_score * 0.1 * 100)  # 放大平衡得分\n\n        if score > best_score:\n            best_score = score\n            best_node = candidate\n\n    return best_node if best_node is not None else -1",
+      "objective": -748.9689242248894
+    },
+    {
+      "concept": "基于双向密度势能协同与时空效率整合的启发式",
+      "feature": [
+        "双向密度势能",
+        "时空效率比",
+        "负载自适应权重",
+        "两步前瞻紧凑度",
+        "容量刚性激励"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    # 容量比例用于动态权重\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n    capacity_stress = 1.0 - cap_ratio\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 双向密度势能：考虑候选点与所有未服务点的距离加权需求，并除以前向距离\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 时空效率比：需求/(距离+时间)，其中时间用剩余容量占比模拟，体现负载紧迫度\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8 + (1.0 - cap_ratio) * 0.1)\n\n        # 3. 轻量两步前瞻紧凑度\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]\n        compact_score = -(dist_now + min_second_dist)\n\n        # 4. 容量刚性激励：容量紧张时奖励大需求，但抑制距离过大\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n        # 添加方向惩罚：若距离过大则降低刚性奖励\n        if dist_now > np.mean(distance_matrix[current_node, all_unserved]) * 1.5:\n            rigidity_bonus *= 0.5\n\n        # 综合评分：密度、效率、紧凑度、刚性奖励加权求和\n        score = (w_density * density_score * 0.15 +\n                 w_efficiency * efficiency_score * 0.15 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -732.6835339989307
+    },
+    {
+      "concept": "**思想概念**：本启发式基于“自适应动态融合与轻量化路径预判”思想。在分析现有15种策略后，发现密度导向（如启发式1）、两步前瞻（如启发式2）和效率比（如启发式3）均有效但各有侧重。本策略从三方面优化：  \n1. **精简融合**：仅保留局部密度势能（衡量进入高密区潜力）与距离-需求比（衡量单位距离服务效率）两项核心指标，通过剩余容量比例动态加权融合，避免参数膨胀。  \n2. **轻量前瞻**：对两步配对评分进行简化——仅计算与最近可行节点的距离（若无则取返回仓库距离），避免复杂投影或聚类，降低计算复杂度。  \n3. **容量刚性调节**：当容量紧张时，对选择大需求客户给予正向激励，加速释放空间，减少后期碎片化风险。  \n该设计在保留关键预测能力的同时大幅削减计算开销，适合实时或大规模场景。",
+      "feature": [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    remaining_capacity = vehicle_capacity - current_load\n    feasible_nodes = [i for i in range(len(remaining_demands)) if remaining_demands[i] and demand_list[i] <= remaining_capacity]\n    if not feasible_nodes:\n        return -1\n\n    all_unserved = [i for i in range(len(remaining_demands)) if remaining_demands[i]]\n    if not all_unserved:\n        return -1\n\n    # 动态权重：剩余容量占比越大，越倾向密度探索；占比越小，越倾向效率\n    cap_ratio = remaining_capacity / vehicle_capacity\n    w_density = cap_ratio\n    w_efficiency = 1.0 - cap_ratio\n    # 容量紧张时对选择大需求的正向激励\n    total_remaining_demand = sum(demand_list[i] for i in all_unserved)\n    capacity_stress = 1.0 - cap_ratio\n\n    best_node = None\n    best_score = -1e9\n\n    for cand in feasible_nodes:\n        dist_now = distance_matrix[current_node, cand]\n        if dist_now < 1e-8:\n            continue\n\n        # 1. 局部密度势能：周围未服务节点的距离加权需求之和 / 到当前节点距离\n        density_sum = 0.0\n        for other in all_unserved:\n            if other == cand:\n                density_sum += demand_list[cand] * 1.0  # 自身权重为1\n            else:\n                d = distance_matrix[cand, other]\n                if d > 1e-8:\n                    density_sum += demand_list[other] / d\n                else:\n                    density_sum += demand_list[other] / 1e-8\n        density_score = density_sum / (dist_now + 1e-8)\n\n        # 2. 距离-需求比效率\n        efficiency_score = demand_list[cand] / (dist_now + 1e-8)\n\n        # 3. 轻量两步前瞻：仅检查能否衔接最近的可行节点\n        second_cap = remaining_capacity - demand_list[cand]\n        second_candidates = [j for j in feasible_nodes if j != cand and demand_list[j] <= second_cap]\n        if second_candidates:\n            min_second_dist = min(distance_matrix[cand, j] for j in second_candidates)\n        else:\n            min_second_dist = distance_matrix[cand, 0]  # 无后续则返回仓库\n        two_step_dist = dist_now + min_second_dist\n        # 紧凑度奖励：两步总距离越短越好（取负）\n        compact_score = -two_step_dist\n\n        # 4. 容量刚性调节：当容量紧张时，对选择大需求客户给予正向激励\n        demand_share = demand_list[cand] / (total_remaining_demand + 1e-8)\n        rigidity_bonus = capacity_stress * demand_share * 0.5\n\n        # 综合评分：密度、效率、紧凑度、刚性奖励加权求和\n        score = (w_density * density_score * 0.1 +\n                 w_efficiency * efficiency_score * 0.1 +\n                 compact_score * 0.05 +\n                 rigidity_bonus)\n\n        if score > best_score:\n            best_score = score\n            best_node = cand\n\n    return best_node if best_node is not None else -1",
+      "objective": -703.7355283195867
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "局部密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      [
+        "需求密度势能",
+        "距离-需求比效率",
+        "动态容量加权融合",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      [
+        "后悔值最小化",
+        "密度势能引导",
+        "动态容量权重",
+        "轻量两步前瞻",
+        "容量刚性调节"
+      ],
+      [
+        "后悔值最小化",
+        "密度势能引导",
+        "自适应容量权重",
+        "轻量一步前瞻",
+        "动态权衡"
+      ]
+    ],
+    "negative_features": [
+      [
+        "需求密度势能",
+        "邻近竞争度惩罚",
+        "容量刚性调节",
+        "自适应半径"
+      ],
+      [
+        "时空势能",
+        "路径平滑度",
+        "动态需求密度",
+        "容量自适应"
+      ],
+      [
+        "贪婪搜索",
+        "最远插入",
+        "容量约束"
+      ],
+      [
+        "局部密度近似",
+        "距离-需求比效率",
+        "轻量两步前瞻",
+        "容量刚性调节",
+        "全局最小距离后悔值",
+        "弹性系数乘性融合"
+      ],
+      [
+        "时序-空间协同",
+        "空间聚集度",
+        "负载平滑度",
+        "动态权重融合",
+        "容量匹配"
+      ],
+      [
+        "空间引力场",
+        "负载离差均衡",
+        "动态容量-需求匹配",
+        "全局拓扑势能",
+        "供需平衡协同"
+      ]
+    ]
+  }
+}

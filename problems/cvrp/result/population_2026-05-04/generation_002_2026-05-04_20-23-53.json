@@ -1,0 +1,125 @@
+{
+  "heuristics": [
+    {
+      "concept": "基于孤立度惩罚的动态加权最近邻启发式：该算法以改进的最近邻为基础，在每一步选择下一节点时，不仅考虑距离因素，还引入了“孤立度惩罚”机制。孤立度定义为候选节点到所有其他未服务节点的平均距离，孤立度高的节点若被推迟服务，未来可能产生更大的绕路成本，因此应给予优先。同时考虑容量紧急度（需求量与剩余容量的比值）作为辅助因子。两者通过动态权重与距离评分结合，权重根据剩余未服务节点数自适应调整：初期偏向距离优化，后期偏向孤立度避免孤立点。若无可选节点则返回-1表示返回仓库。",
+      "feature": [
+        "动态加权最近邻",
+        "孤立度惩罚",
+        "容量紧急度",
+        "自适应权重"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    depot = 0\n    n_nodes = len(demand_list)\n    \n    # 获取所有可行候选节点\n    feasible = []\n    for node in range(n_nodes):\n        if not remaining_demands[node]:\n            continue\n        if current_load + demand_list[node] > vehicle_capacity:\n            continue\n        feasible.append(node)\n    \n    if len(feasible) == 0:\n        return -1\n    \n    # 如果只有一个候选，直接返回\n    if len(feasible) == 1:\n        return feasible[0]\n    \n    # 计算剩余未服务节点数，用于动态权重\n    n_remaining = np.sum(remaining_demands)\n    \n    # 动态权重alpha：剩余节点越多越偏距离，剩余节点越少越偏孤立度\n    alpha = max(0.1, min(0.9, n_remaining / n_nodes))\n    \n    best_node = -1\n    best_score = float('inf')\n    \n    # 预先计算所有未服务节点的孤立度（到其他所有未服务节点的平均距离）\n    unserved_nodes = np.where(remaining_demands)[0]\n    isolation_cache = {}\n    for node in feasible:\n        # 计算该节点到所有其他未服务节点的平均距离\n        other_nodes = [n for n in unserved_nodes if n != node]\n        if len(other_nodes) == 0:\n            isolation = 0\n        else:\n            dists = [distance_matrix[node, n] for n in other_nodes]\n            isolation = np.mean(dists)\n        isolation_cache[node] = isolation\n    \n    # 获取所有候选距离的最大最小值用于归一化\n    all_distances = [distance_matrix[current_node, node] for node in feasible]\n    min_dist = min(all_distances)\n    max_dist = max(all_distances)\n    dist_range = max_dist - min_dist if max_dist > min_dist else 1.0\n    \n    # 获取所有孤立度的最大最小值用于归一化\n    all_isolation = [isolation_cache[node] for node in feasible]\n    min_iso = min(all_isolation)\n    max_iso = max(all_isolation)\n    iso_range = max_iso - min_iso if max_iso > min_iso else 1.0\n    \n    for node in feasible:\n        # 归一化距离（0-1，越大越差）\n        dist = distance_matrix[current_node, node]\n        norm_dist = (dist - min_dist) / dist_range\n        \n        # 归一化孤立度（0-1，越大越应该优先服务，即惩罚越小）\n        iso = isolation_cache[node]\n        norm_iso = 1.0 - (iso - min_iso) / iso_range  # 越孤立值越大，这里转化为惩罚越小\n        \n        # 容量紧急度：需求量越大且剩余容量越小越紧急\n        urgency = demand_list[node] / (vehicle_capacity - current_load + 1e-8)\n        norm_urgency = min(1.0, urgency)  # 截断到0-1\n        \n        # 综合评分：距离越小越好，孤立度越大越好（惩罚小），紧急度越大越好\n        # 权重：alpha偏距离，(1-alpha)偏孤立度和紧急度的组合\n        score = alpha * norm_dist + (1 - alpha) * (0.7 * norm_iso + 0.3 * (1 - norm_urgency))\n        \n        if score < best_score:\n            best_score = score\n            best_node = node\n    \n    return best_node",
+      "objective": -754.521524612822
+    },
+    {
+      "concept": "该启发式基于“容量感知的密度加权最近邻”策略。从当前节点出发，对每个可行客户（剩余容量≥需求量）计算综合评分，评分由三部分加权组成：距离成本（越小越好）、容量利用率（该客户需求占当前剩余容量的比例，越低越好，避免浪费）、局部密度因子（该客户周围未服务客户数量占全部未服务客户的比例，越高越好，引导车辆在密集区域连续服务）。三者通过动态权重融合，在贪心距离基础上融入空间聚集性与容量匹配度，克服纯最近邻的局部最优与聚类法依赖坐标的局限。若无可行客户则返回-1触发返仓。",
+      "feature": [
+        "容量感知加权评分",
+        "局部密度因子",
+        "动态权重平衡"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(remaining_demands)\n    feasible_nodes = []\n    \n    # 获取所有未服务且容量可行的节点\n    for node in range(n_nodes):\n        if not remaining_demands[node]:\n            continue\n        if current_load + demand_list[node] > vehicle_capacity:\n            continue\n        feasible_nodes.append(node)\n    \n    if not feasible_nodes:\n        return -1\n    \n    # 计算局部密度因子（每个可行节点周围未服务节点数量）\n    # 使用距离阈值（所有可行节点间平均距离的一半）作为密度半径\n    if len(feasible_nodes) > 1:\n        avg_dist = 0\n        count = 0\n        for i in feasible_nodes:\n            for j in feasible_nodes:\n                if i != j:\n                    avg_dist += distance_matrix[i, j]\n                    count += 1\n        threshold = avg_dist / (count * 2) if count > 0 else float('inf')\n    else:\n        threshold = float('inf')\n    \n    # 计算每个可行节点周围的未服务节点数（包括自身）\n    total_remaining = np.sum(remaining_demands)\n    density_factors = {}\n    for node in feasible_nodes:\n        count_dense = 0\n        for other in range(n_nodes):\n            if not remaining_demands[other]:\n                continue\n            if distance_matrix[node, other] <= threshold:\n                count_dense += 1\n        density_factors[node] = count_dense / total_remaining if total_remaining > 0 else 0\n    \n    # 动态权重：根据剩余节点数与需求量分布调整\n    if total_remaining > 10:\n        alpha = 0.3  # 容量利用率权重\n        beta = 0.4   # 密度因子权重\n    else:\n        alpha = 0.2\n        beta = 0.3\n    \n    best_node = -1\n    best_score = float('inf')\n    \n    for node in feasible_nodes:\n        dist = distance_matrix[current_node, node]\n        capacity_ratio = demand_list[node] / vehicle_capacity if vehicle_capacity > 0 else 0\n        density = density_factors[node]\n        \n        # 综合评分：距离 + α*容量利用率 - β*密度因子（密度高则评分低，更优）\n        score = dist + alpha * capacity_ratio - beta * density\n        \n        if score < best_score:\n            best_score = score\n            best_node = node\n    \n    return best_node",
+      "objective": -744.5028612492389
+    },
+    {
+      "concept": "算法基于改进的最近邻启发式，从当前节点出发，在剩余未服务的客户中寻找既能被车辆当前容量装载（即当前载重加上该客户需求量不超过车辆容量）且距离当前节点最近的客户作为下一节点。如果所有可达客户都无法装载，则返回-1表示车辆必须返回仓库。该策略兼顾距离最小化和容量约束，构造可行且较优的路径。",
+      "feature": [
+        "改进最近邻",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    best_node = -1\n    best_distance = float('inf')\n    \n    for node in range(len(remaining_demands)):\n        if not remaining_demands[node]:\n            continue\n        if current_load + demand_list[node] > vehicle_capacity:\n            continue\n        dist = distance_matrix[current_node, node]\n        if dist < best_distance:\n            best_distance = dist\n            best_node = node\n    \n    return best_node",
+      "objective": -740.9978434849475
+    },
+    {
+      "concept": "该启发式基于“容量-孤立度自适应修正距离”策略，通过在最近邻算法中引入一个动态惩罚因子来平衡当前贪心选择与未来前瞻需求。该惩罚因子由容量紧迫度（需求/剩余容量）和局部孤立度（到其他未服务节点的平均距离）非线性融合而成，无需预设权重或阈值，即可在容量充裕时自动引导车辆优先服务孤立节点以预防后期绕路，在容量紧张时自动转向就近节点以快速返仓。算法保持了O(n)的时间复杂度，决策平滑无阈值切换，具有强鲁棒性和通用性。",
+      "feature": [
+        "容量感知",
+        "孤立度预判",
+        "自适应惩罚因子",
+        "修正距离最小化"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    \n    # 获取容量可行的未服务节点\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 获取所有未服务节点索引\n    unserved = np.where(remaining_demands)[0]\n    \n    # 计算每个未服务节点的孤立度（到其他未服务节点的平均距离）\n    isolation = np.zeros(n_nodes)\n    for node in unserved:\n        others = unserved[unserved != node]\n        if len(others) > 0:\n            isolation[node] = np.mean(distance_matrix[node, others])\n    \n    # 计算可行节点的平均孤立度\n    feas_isolation = isolation[feasible]\n    avg_isolation = np.mean(feas_isolation) if len(feas_isolation) > 0 else 1.0\n    \n    remaining_cap = vehicle_capacity - current_load\n    \n    best_node = -1\n    best_corrected_dist = float('inf')\n    \n    for node in feasible:\n        dist = distance_matrix[current_node, node]\n        \n        # 容量紧迫度：需求占剩余容量的比例\n        cu = demand_list[node] / (remaining_cap + 1e-8)\n        \n        # 归一化孤立度：当前节点孤立度相对于平均孤立度的比值\n        iso_ratio = isolation[node] / (avg_isolation + 1e-8)\n        \n        # 修正距离 = 原始距离 × (1 + 容量紧迫度) × (1 + 归一化孤立度)\n        corrected_dist = dist * (1.0 + cu) * (1.0 + iso_ratio)\n        \n        if corrected_dist < best_corrected_dist:\n            best_corrected_dist = corrected_dist\n            best_node = node\n    \n    # 兜底：若未选到节点（理论上不会发生），返回最近邻\n    if best_node == -1:\n        dists = distance_matrix[current_node, feasible]\n        best_node = feasible[np.argmin(dists)]\n    \n    return int(best_node)",
+      "objective": -691.682280168914
+    },
+    {
+      "concept": "本启发式基于**容量-孤立度自适应切换**策略。核心思想是仅使用两个关键指标：当前节点到候选节点的**距离**和候选节点的**孤立度**（到所有未服务节点的平均距离）。依据车辆当前负载率动态切换优先级：当负载率低（剩余容量充裕）时，优先选择孤立度高的节点，预防后期绕路；当负载率高（容量紧张）时，切换为最近邻策略，确保快速返仓。同时加入**回溯惩罚机制**：若连续两步选择的节点孤立度均呈上升趋势，则临时强制转向距离最近节点，避免路径发散。整个算法仅含两个可解释阈值，保持O(n)复杂度。",
+      "feature": [
+        "容量自适应切换",
+        "孤立度优先",
+        "回溯惩罚",
+        "最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    \n    # 获取所有可行候选节点（未服务且容量允许）\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 预计算每个未服务节点的孤立度（到其他未服务节点的平均距离）\n    unserved_indices = np.where(remaining_demands)[0]\n    isolation = np.zeros(n_nodes)\n    for node in unserved_indices:\n        other_nodes = unserved_indices[unserved_indices != node]\n        if len(other_nodes) > 0:\n            isolation[node] = np.mean(distance_matrix[node, other_nodes])\n    \n    # 获取当前可行节点的孤立度\n    feasible_isolation = isolation[feasible]\n    avg_isolation = np.mean(feasible_isolation) if len(feasible_isolation) > 0 else 0.0\n    \n    # 容量压力判断\n    remaining_cap = vehicle_capacity - current_load\n    total_remaining_demand = np.sum(demand_list[unserved_indices])\n    avg_demand = np.mean(demand_list[unserved_indices]) if len(unserved_indices) > 0 else 1.0\n    load_ratio = current_load / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    \n    # 回溯惩罚：若连续两步孤立度上升，强制选择最近节点\n    if not hasattr(find_best_route, '_last_isolation'):\n        find_best_route._last_isolation = None\n        find_best_route._penalty_count = 0\n    \n    # 当前节点的孤立度（若可行）用于回溯判断\n    current_isolation = isolation[current_node] if current_node in feasible else 0.0\n    if find_best_route._last_isolation is not None:\n        if current_isolation > find_best_route._last_isolation:\n            find_best_route._penalty_count += 1\n        else:\n            find_best_route._penalty_count = 0\n    find_best_route._last_isolation = current_isolation\n    \n    # 触发回溯惩罚：连续上升超过3次\n    if find_best_route._penalty_count >= 3:\n        find_best_route._penalty_count = 0\n        # 强制选择最近节点\n        dists = distance_matrix[current_node, feasible]\n        best_idx = np.argmin(dists)\n        return int(feasible[best_idx])\n    \n    # 容量紧张时（剩余容量 < 平均需求 * 0.6 或负载率 > 0.8），切换为最近邻\n    if remaining_cap < avg_demand * 0.6 or load_ratio > 0.8:\n        dists = distance_matrix[current_node, feasible]\n        best_idx = np.argmin(dists)\n        return int(feasible[best_idx])\n    \n    # 孤立度阈值：若某节点孤立度超过平均孤立度的1.5倍，强制优先服务\n    forced_threshold = 1.5 * avg_isolation\n    forced_node = -1\n    for node in feasible:\n        if isolation[node] >= forced_threshold:\n            forced_node = node\n            break\n    if forced_node != -1:\n        return int(forced_node)\n    \n    # 一般情况：容量充裕时，选择孤立度 × 距离最小的节点\n    best_node = -1\n    best_score = float('inf')\n    for node in feasible:\n        dist = distance_matrix[current_node, node]\n        score = dist * (1 + isolation[node] / (avg_isolation + 1e-8))\n        if score < best_score:\n            best_score = score\n            best_node = node\n    \n    return int(best_node)",
+      "objective": -673.148497863556
+    },
+    {
+      "concept": "该启发式基于**容量自适应的孤立度修正最近邻**策略。首先计算每个可行候选节点的**孤立度**（到所有其他未服务节点的平均距离），并引入**容量压力系数**（剩余需求总量与车辆容量的比值），将孤立度与距离结合形成“修正距离”。算法通过两个自适应阈值进行决策：若某节点孤立度超过全局平均孤立度的1.5倍，则强制优先服务以避免后期绕路；若剩余容量低于平均需求的60%，则切换为纯最近邻策略以快速返仓。否则，选择修正距离最小的节点。该设计仅用两个可解释参数，在O(n)复杂度下平衡空间拓扑与容量约束。",
+      "feature": [
+        "孤立度预判",
+        "容量自适应阈值",
+        "修正距离评分",
+        "强制孤立点服务",
+        "最近邻兜底"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    n_nodes = len(demand_list)\n    \n    # 获取所有可行候选节点（未服务且容量允许）\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    if len(feasible) == 1:\n        return int(feasible[0])\n    \n    # 计算剩余容量和平均需求\n    remaining_cap = vehicle_capacity - current_load\n    unserved_indices = np.where(remaining_demands)[0]\n    total_remaining_demand = np.sum(demand_list[unserved_indices])\n    avg_demand = np.mean(demand_list[unserved_indices]) if len(unserved_indices) > 0 else 1.0\n    \n    # 预计算每个未服务节点的孤立度（到其他未服务节点的平均距离）\n    isolation = np.zeros(n_nodes)\n    for node in unserved_indices:\n        other_nodes = unserved_indices[unserved_indices != node]\n        if len(other_nodes) > 0:\n            isolation[node] = np.mean(distance_matrix[node, other_nodes])\n    \n    # 计算全局平均孤立度（仅针对可行节点，用于阈值判断）\n    feasible_isolation = isolation[feasible]\n    avg_isolation = np.mean(feasible_isolation) if len(feasible_isolation) > 0 else 0.0\n    \n    # 容量压力系数：剩余需求总量与车辆容量的比值（越大说明容量越紧张）\n    capacity_pressure = total_remaining_demand / (vehicle_capacity + 1e-8)\n    \n    # 步骤1: 检查是否有需要强制服务的孤立节点（孤立度超过平均的1.5倍）\n    threshold = 1.5 * avg_isolation\n    forced_node = -1\n    for node in feasible:\n        if isolation[node] >= threshold:\n            forced_node = node\n            break\n    if forced_node != -1:\n        return int(forced_node)\n    \n    # 步骤2: 容量紧张时切换为最近邻兜底\n    if remaining_cap < avg_demand * 0.6:\n        dists = distance_matrix[current_node, feasible]\n        best_idx = np.argmin(dists)\n        return int(feasible[best_idx])\n    \n    # 步骤3: 一般情况，选择修正距离最小的节点\n    # 修正距离 = 欧氏距离 × (1 + 孤立度 × 容量压力系数)\n    best_node = -1\n    best_corrected_dist = float('inf')\n    for node in feasible:\n        dist = distance_matrix[current_node, node]\n        corrected_dist = dist * (1 + isolation[node] * capacity_pressure)\n        if corrected_dist < best_corrected_dist:\n            best_corrected_dist = corrected_dist\n            best_node = node\n    \n    return int(best_node)",
+      "objective": -639.0332963817035
+    },
+    {
+      "concept": "动态辐射区域与前瞻性后悔值混合启发式。该算法以当前节点为圆心，根据车辆剩余容量与未服务客户的平均需求动态计算搜索半径，形成即时可达区。在区内生成2-3步路径片段，计算每个片段的综合评分：包含片段总距离、延迟服务这些客户的局部后悔值（即未来从仓库往返的额外代价）、跨区惩罚（若选择当前区域外节点则根据区域密度加权），以及容量紧迫度调节因子。评分最高的片段首节点被选为下一步。若区内无可行片段，则启用宽松跨区后备，选择全局最近可行节点。",
+      "feature": [
+        "动态辐射区域",
+        "路径片段生成",
+        "局部后悔值",
+        "跨区惩罚",
+        "容量紧迫度调节",
+        "综合评分选择"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    depot = 0\n    n_nodes = len(demand_list)\n    available = np.where(remaining_demands)[0]\n    if len(available) == 0:\n        return -1\n    \n    # Step 1: Filter feasible single-step nodes by capacity\n    feasible = []\n    for node in available:\n        if current_load + demand_list[node] <= vehicle_capacity:\n            feasible.append(node)\n    if len(feasible) == 0:\n        return -1\n    \n    # Step 2: Dynamic radius based on remaining capacity and average demand\n    remaining_cap = vehicle_capacity - current_load\n    avg_demand = np.mean([demand_list[n] for n in available]) if len(available) > 0 else 0\n    if avg_demand == 0:\n        radius_factor = 1.0\n    else:\n        radius_factor = min(1.0, remaining_cap / (avg_demand * 2))  # capacity pressure\n    # Compute max distance from current node to feasible nodes\n    max_dist = max([distance_matrix[current_node, n] for n in feasible]) if feasible else 0\n    dynamic_radius = max_dist * (0.5 + 0.5 * radius_factor)  # shrink when capacity tight\n    \n    # Step 3: Build 2-step fragments within dynamic radius\n    fragments = []\n    for a in feasible:\n        dist_cur_to_a = distance_matrix[current_node, a]\n        if dist_cur_to_a > dynamic_radius:\n            continue\n        load_a = demand_list[a]\n        if current_load + load_a > vehicle_capacity:\n            continue\n        remaining_after_a = vehicle_capacity - (current_load + load_a)\n        for b in available:\n            if b == a:\n                continue\n            if remaining_after_a >= demand_list[b]:\n                dist_a_to_b = distance_matrix[a, b]\n                if dist_a_to_b > dynamic_radius * 1.5:  # allow slight relaxation\n                    continue\n                frag_dist = dist_cur_to_a + dist_a_to_b\n                fragments.append((a, b, frag_dist))\n    \n    # If no fragments, fallback to truncate: use nearest feasible within radius or global\n    if len(fragments) == 0:\n        # first try within radius\n        best_node = -1\n        best_dist = float('inf')\n        for node in feasible:\n            d = distance_matrix[current_node, node]\n            if d <= dynamic_radius and d < best_dist:\n                best_dist = d\n                best_node = node\n        if best_node != -1:\n            return best_node\n        # then global nearest\n        best_node = -1\n        best_dist = float('inf')\n        for node in feasible:\n            d = distance_matrix[current_node, node]\n            if d < best_dist:\n                best_dist = d\n                best_node = node\n        return best_node if best_node != -1 else -1\n    \n    # Step 4: Compute regret and scoring for each fragment\n    best_fragment = None\n    best_score = -float('inf')\n    \n    # Precompute depot distances\n    dist_to_depot_cur = distance_matrix[current_node, depot]\n    \n    # Compute local density around current node (as inverse of avg distance to nearby nodes)\n    nearby_dists = [distance_matrix[current_node, n] for n in feasible]\n    local_density = 1.0 / (np.mean(nearby_dists) + 1e-8) if nearby_dists else 0\n    \n    for a, b, frag_dist in fragments:\n        # Regret: cost of deferring nodes a and b (depot round trips) minus current path to depot\n        cost_deferred = (distance_matrix[depot, a] + distance_matrix[a, depot]) + \\\n                        (distance_matrix[depot, b] + distance_matrix[b, depot])\n        cost_now = frag_dist + distance_matrix[b, depot]\n        regret = cost_deferred - cost_now\n        normalized_regret = regret / (cost_deferred + 1e-8)\n        \n        # Cross-region penalty: if node a or b is far from local cluster\n        dist_a_to_cur = distance_matrix[current_node, a]\n        penalty_cross = 0.0\n        if dist_a_to_cur > dynamic_radius:\n            penalty_cross = dist_a_to_cur / (dynamic_radius + 1e-8) * local_density * 0.5\n        dist_b_to_cur = distance_matrix[current_node, b]\n        if dist_b_to_cur > dynamic_radius:\n            penalty_cross += dist_b_to_cur / (dynamic_radius + 1e-8) * local_density * 0.5\n        \n        # Capacity urgency: higher when remaining capacity is low relative to remaining demand\n        total_remaining_demand = np.sum([demand_list[n] for n in available if remaining_demands[n]])\n        if total_remaining_demand > 0:\n            urgency = 1.0 - (remaining_cap / total_remaining_demand)\n        else:\n            urgency = 0.0\n        urgency_gain = urgency * 0.3  # weight for positive contribution\n        \n        # Normalized distance (smaller is better)\n        max_frag_dist = max([d[2] for d in fragments]) if fragments else 1\n        normalized_dist = 1.0 - (frag_dist / (max_frag_dist + 1e-8))\n        \n        # Final score: combine components\n        score = (0.4 * normalized_dist) + (0.3 * normalized_regret) - (0.2 * penalty_cross) + (0.1 * urgency_gain)\n        \n        if score > best_score:\n            best_score = score\n            best_fragment = (a, b)\n    \n    if best_fragment is None:\n        # Fallback to nearest feasible\n        best_node = -1\n        best_dist = float('inf')\n        for node in feasible:\n            d = distance_matrix[current_node, node]\n            if d < best_dist:\n                best_dist = d\n                best_node = node\n        return best_node if best_node != -1 else -1\n    \n    return best_fragment[0]",
+      "objective": -627.8776289488849
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "动态加权最近邻",
+        "孤立度惩罚",
+        "容量紧急度",
+        "自适应权重"
+      ],
+      [
+        "容量感知加权评分",
+        "局部密度因子",
+        "动态权重平衡"
+      ],
+      [
+        "改进最近邻",
+        "容量约束检查"
+      ]
+    ],
+    "negative_features": [
+      [
+        "区域扇区划分",
+        "剩余容量压力均衡",
+        "绕行惩罚潜力",
+        "动态加权评分"
+      ],
+      [
+        "全局瓶颈度评估",
+        "孤立性与需求匹配加权",
+        "反向压力逃逸引导",
+        "概率采样扰动"
+      ],
+      [
+        "自适应后悔-距离平衡",
+        "容量动态三模式切换",
+        "后悔效率比前瞻",
+        "最近邻兜底"
+      ],
+      [
+        "前瞻绕路惩罚",
+        "需求紧迫度加权",
+        "容量自适应"
+      ]
+    ]
+  }
+}

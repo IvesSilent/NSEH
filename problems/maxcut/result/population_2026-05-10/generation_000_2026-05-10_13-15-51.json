@@ -1,0 +1,56 @@
+{
+  "heuristics": [
+    {
+      "concept": "思想概念：该启发式采用全局视角的局部搜索策略。首先计算当前划分的跨边权重总量，然后评估将当前节点分配到0侧或1侧时，该节点与所有节点（无论是否已分配）的边权对总跨边的影响。具体地，对于每个可能的分配侧，计算该节点与另一侧所有节点（包括已分配和未分配）的边权之和，然后选择使总跨边权重增量更大的那一侧。与贪婪逐点分配不同，此方法考虑了未分配节点对未来边权贡献的潜在影响，从而避免短视决策，并利用未分配节点信息引导选择。若两侧增益相等，则默认分配到0侧。",
+      "feature": [
+        "全局视角",
+        "前瞻性评估",
+        "确定性分配"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    total_nodes = len(current_partition)\n    # 计算当前总跨边权重（只考虑已分配节点间的边）\n    current_cross = 0.0\n    for i in range(total_nodes):\n        if current_partition[i] != -1:\n            for j in range(i+1, total_nodes):\n                if current_partition[j] != -1 and current_partition[i] != current_partition[j]:\n                    current_cross += adjacency_matrix[i, j]\n\n    # 模拟分配到0侧时的新划分\n    new_partition_0 = current_partition.copy()\n    new_partition_0[node_id] = 0\n    cross_0 = current_cross\n    for j in range(total_nodes):\n        if node_id != j:\n            if new_partition_0[j] != -1 and new_partition_0[node_id] != new_partition_0[j]:\n                cross_0 += adjacency_matrix[node_id, j]\n\n    # 模拟分配到1侧时的新划分\n    new_partition_1 = current_partition.copy()\n    new_partition_1[node_id] = 1\n    cross_1 = current_cross\n    for j in range(total_nodes):\n        if node_id != j:\n            if new_partition_1[j] != -1 and new_partition_1[node_id] != new_partition_1[j]:\n                cross_1 += adjacency_matrix[node_id, j]\n\n    # 选择使总跨边更大的侧，相等则默认0\n    if cross_0 >= cross_1:\n        return 0\n    else:\n        return 1",
+      "objective": 466.5625
+    },
+    {
+      "concept": "该启发式采用贪婪逐点分配策略：对于当前待分配的节点，分别计算将其分配到0侧和1侧时，与另一侧已分配节点之间增加的跨边权重之和（即直接与已分配节点相连的边权，因为未分配节点不计入），选择使净增益更大的那一侧。该策略是贪心的，每次只考虑当前局部最优。若两侧净收益相等或均为0（例如第一个节点），则默认分配到0侧。",
+      "feature": [
+        "贪婪搜索"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    # 计算分配到0侧时，与已分配1侧节点之间的边权之和\n    gain0 = 0\n    # 计算分配到1侧时，与已分配0侧节点之间的边权之和\n    gain1 = 0\n    for neighbor in range(len(current_partition)):\n        if not unassigned_nodes[neighbor] and current_partition[neighbor] != -1:\n            if current_partition[neighbor] == 1:\n                gain0 += adjacency_matrix[node_id, neighbor]\n            else:  # current_partition[neighbor] == 0\n                gain1 += adjacency_matrix[node_id, neighbor]\n    # 选择增益更大的侧，若相等则默认0\n    if gain0 >= gain1:\n        return 0\n    else:\n        return 1",
+      "objective": 470.953125
+    },
+    {
+      "concept": "该启发式采用“对抗性博弈”视角：将节点分配过程视为双方轮流选择节点以最大化自身跨边收益。对于当前待分配节点，计算其与已分配0侧所有节点的总边权（若节点加入1侧将成为跨边），以及与已分配1侧所有节点的总边权（若节点加入0侧将成为跨边）。然后引入“平衡性补偿”：若当前0侧节点数多于1侧，则对分配到1侧的增益给予额外奖励（反之亦然），以平衡两侧规模，避免一侧过载导致后期跨边潜力下降。最终选择补偿后的净增益更大的侧，若相等则默认0侧。该策略不依赖未分配节点的未来估计，而是通过动态平衡纠正贪心偏向。",
+      "feature": [
+        "对抗性博弈",
+        "平衡补偿",
+        "规模感知"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    # 计算当前两侧已分配节点数\n    count0 = 0\n    count1 = 0\n    for i in range(n):\n        if not unassigned_nodes[i] and current_partition[i] != -1:\n            if current_partition[i] == 0:\n                count0 += 1\n            else:\n                count1 += 1\n\n    # 计算分配到0侧时与已分配1侧节点的边权和（即跨边收益）\n    gain0 = 0.0\n    # 计算分配到1侧时与已分配0侧节点的边权和\n    gain1 = 0.0\n    for j in range(n):\n        if not unassigned_nodes[j] and current_partition[j] != -1:\n            w = adjacency_matrix[node_id, j]\n            if current_partition[j] == 1:\n                gain0 += w\n            else:\n                gain1 += w\n\n    # 平衡补偿：小侧节点数少，分配过去给予奖励（鼓励平衡）\n    balance_bonus = 0.0\n    # 若0侧节点多于1侧，则分配到1侧给予补偿\n    if count0 > count1:\n        balance_bonus = 0.5 * (count0 - count1)  # 补偿系数可调\n        gain1 += balance_bonus\n    elif count1 > count0:\n        balance_bonus = 0.5 * (count1 - count0)\n        gain0 += balance_bonus\n\n    # 选择收益较大的侧，相等则默认0\n    if gain0 >= gain1:\n        return 0\n    else:\n        return 1",
+      "objective": 473.71875
+    },
+    {
+      "concept": "思想概念：本启发式采用差异化增益驱动策略。首先计算当前节点与已分配0侧和1侧节点的总边权之和，形成基础偏好。然后引入未分配节点加权影响：对于每个未分配邻居，依据其度数高低赋予权重（度数越高，未来可能连接的边越多，该未分配节点的影响越大），进而计算将当前节点分别分配到0侧和1侧时，通过未分配节点所能获得的潜在未来跨边增益差异。最终将基础偏好与未来影响加权（权重可调，例如0.6:0.4）相加，选择综合加权值更大的侧。若相等则默认0侧。该策略平衡了当前局部收益与未来潜力，避免了纯贪婪短视。",
+      "feature": [
+        "差异化增益",
+        "动态加权",
+        "前瞻性评估"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    # 基础偏好：当前节点与已分配0侧、1侧节点的总边权\n    base0 = 0.0\n    base1 = 0.0\n    for j in range(n):\n        if not unassigned_nodes[j] and current_partition[j] != -1:\n            w = adjacency_matrix[node_id, j]\n            if current_partition[j] == 0:\n                base1 += w  # 若挂到1侧，此边为跨边\n            else:\n                base0 += w  # 若挂到0侧，此边为跨边\n    # 未来影响：考察未分配节点，以其度数作为权重\n    future_impact = 0.0\n    for j in range(n):\n        if unassigned_nodes[j] and adjacency_matrix[node_id, j] > 0:\n            # 计算该未分配节点的度数（连通边数）\n            degree = np.count_nonzero(adjacency_matrix[j] > 0)\n            # 若当前节点分配到0侧，则未来期待的跨边与度数正相关\n            # 将度数归一化（与n无关的简单线性缩放）\n            future_impact += adjacency_matrix[node_id, j] * (degree + 1)\n    # 综合：基础偏好权重0.6，未来影响权重0.4，最终选择较大侧\n    score0 = 0.6 * base0 + 0.4 * future_impact\n    score1 = 0.6 * base1 + 0.4 * future_impact\n    return 0 if score0 >= score1 else 1",
+      "objective": 486.734375
+    },
+    {
+      "concept": "该启发式基于“最小化冲突”原则，通过局部邻域内已分配节点的边权对比来决定当前节点的归属。它不是直接追求跨边最大，而是先统计当前节点与其所有已分配邻居的边权总和，再根据每种分配方案可能导致的内部冲突增量（即若将该节点分配到某侧，该侧内部会因此增加的边权总和）来选择使冲突增量最小的一侧。在无已分配邻居或冲突增量相等时，默认分配到0侧。该策略与现有启发式在衡量标准上截然不同，避免了贪婪地追求即时跨边增益，转而关注避免未来同侧内部连接带来的惩罚。",
+      "feature": [
+        "冲突最小化",
+        "局部邻域分析",
+        "确定型分配"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    # 初始化当前节点分配到两侧时引起的内部冲突增量\n    conflict0 = 0.0\n    conflict1 = 0.0\n    \n    # 遍历所有节点，只考虑已分配且与当前节点有边的邻居\n    for j in range(n):\n        if not unassigned_nodes[j] and current_partition[j] != -1:\n            w = adjacency_matrix[node_id, j]\n            if w > 0:\n                # 若将当前节点分配到0侧\n                if current_partition[j] == 0:\n                    conflict0 += w\n                # 若将当前节点分配到1侧\n                else:  # current_partition[j] == 1\n                    conflict1 += w\n    \n    # 选择冲突增量较小的侧，相等则默认0\n    if conflict0 <= conflict1:\n        return 0\n    else:\n        return 1",
+      "objective": 513.265625
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": []
+  }
+}

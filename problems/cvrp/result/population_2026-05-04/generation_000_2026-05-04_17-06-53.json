@@ -1,0 +1,88 @@
+{
+  "heuristics": [
+    {
+      "concept": "算法基于改进的最近邻启发式，从当前节点出发，在剩余未服务的客户中寻找既能被车辆当前容量装载（即当前载重加上该客户需求量不超过车辆容量）且距离当前节点最近的客户作为下一节点。如果所有可达客户都无法装载，则返回-1表示车辆必须返回仓库。该策略兼顾距离最小化和容量约束，构造可行且较优的路径。",
+      "feature": [
+        "改进最近邻",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    best_node = -1\n    best_distance = float('inf')\n    \n    for node in range(len(remaining_demands)):\n        if not remaining_demands[node]:\n            continue\n        if current_load + demand_list[node] > vehicle_capacity:\n            continue\n        dist = distance_matrix[current_node, node]\n        if dist < best_distance:\n            best_distance = dist\n            best_node = node\n    \n    return best_node",
+      "objective": -740.9978434849475
+    },
+    {
+      "concept": "基于路径片段前瞻与后悔值机制的新启发式。该算法不再单步选择下一节点，而是先生成从当前节点出发、容量允许的短路径片段（2-3个客户），并计算每个片段的“后悔值”——即若推迟服务这些客户，未来需为此付出的额外绕路代价。综合评估片段总距离与后悔值，选择评分最高的片段，取其首节点作为下一步。该策略能提前规避高代价客户的孤立浪费，增强路径规划的全局预见性。",
+      "feature": [
+        "路径片段生成",
+        "后悔值评估",
+        "容量约束检查",
+        "综合评分选择"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    depot = 0\n    n_nodes = len(demand_list)\n    available = np.where(remaining_demands)[0]\n    \n    # 第一步：筛选可行单步节点\n    feasible = []\n    for node in available:\n        if current_load + demand_list[node] <= vehicle_capacity:\n            feasible.append(node)\n    if len(feasible) == 0:\n        return -1\n    \n    # 如果只有少数可选，直接返回最近邻\n    if len(feasible) <= 3:\n        best_node = -1\n        best_dist = float('inf')\n        for node in feasible:\n            d = distance_matrix[current_node, node]\n            if d < best_dist:\n                best_dist = d\n                best_node = node\n        return best_node\n    \n    # 第二步：生成所有可能的2-节点片段（当前节点 -> A -> B）\n    # 片段需满足容量约束（A和B的总需求不超过剩余容量）\n    fragments = []\n    for a in feasible:\n        load_a = demand_list[a]\n        if current_load + load_a > vehicle_capacity:\n            continue\n        remaining_cap_after_a = vehicle_capacity - (current_load + load_a)\n        # 找可行后继\n        for b in available:\n            if b == a:\n                continue\n            if remaining_cap_after_a >= demand_list[b]:\n                dist_frag = distance_matrix[current_node, a] + distance_matrix[a, b]\n                fragments.append((a, b, dist_frag))\n    \n    # 如果没有2-节点片段，退回到单步最近邻\n    if len(fragments) == 0:\n        best_node = -1\n        best_dist = float('inf')\n        for node in feasible:\n            d = distance_matrix[current_node, node]\n            if d < best_dist:\n                best_dist = d\n                best_node = node\n        return best_node\n    \n    # 第三步：计算每个片段的后悔值\n    # 后悔值 = 若不服务这个片段中的节点，将来单独从仓库折返服务它们的代价\n    # 简化：对片段中每个节点，计算（节点到仓库距离 * 2 - 片段中该节点到前驱距离）的累积，再除以需求总量\n    best_fragment = None\n    best_score = -float('inf')\n    \n    # 基准：当前节点到仓库距离\n    dist_cur_to_depot = distance_matrix[current_node, depot]\n    \n    for a, b, dist_frag in fragments:\n        # 片段总需求\n        total_demand = demand_list[a] + demand_list[b]\n        if total_demand == 0:\n            continue\n        \n        # 后悔值计算：\n        # 若不当前服务a和b，未来需分别从仓库出发到a再到仓库，再到b再到仓库\n        cost_deferred = (distance_matrix[depot, a] + distance_matrix[a, depot]) + \\\n                        (distance_matrix[depot, b] + distance_matrix[b, depot])\n        # 当前服务的总距离（当前->a->b）加上从b返回仓库的代价\n        cost_now = dist_frag + distance_matrix[b, depot]\n        # 后悔值 = deferred - now，越大说明当前服务这个片段越有利\n        regret = cost_deferred - cost_now\n        \n        # 综合评分：片段距离越小越好，后悔值越大越好\n        normalized_dist = 1.0 - (dist_frag / (np.max([d[2] for d in fragments]) + 1e-8))\n        normalized_regret = regret / (cost_deferred + 1e-8)  # 相对后悔\n        score = 0.5 * normalized_dist + 0.5 * normalized_regret\n        \n        if score > best_score:\n            best_score = score\n            best_fragment = (a, b)\n    \n    if best_fragment is None:\n        # 回退到最近邻\n        best_node = -1\n        best_dist = float('inf')\n        for node in feasible:\n            d = distance_matrix[current_node, node]\n            if d < best_dist:\n                best_dist = d\n                best_node = node\n        return best_node\n    \n    # 返回片段中的第一个节点\n    return best_fragment[0]",
+      "objective": -617.8469962501042
+    },
+    {
+      "concept": "该启发式基于“离线聚类 + 在线局部贪心”的混合策略。首先使用KMeans对所有客户节点（排除仓库）进行空间聚类，将整个问题区域划分为若干簇。在在线路径构建过程中，车辆当前所在的簇被标记为“目标簇”。算法优先从目标簇中选择距离当前节点最近的可行客户（满足容量约束）。如果目标簇内无可行客户，则寻找当前车辆剩余位置最近的可行客户（允许跨簇），以最大化车辆利用率并避免局部死锁。该策略通过预先的空间分组引导车辆在簇内集中服务，减少跨区域迂回，同时保留跨簇灵活性以应对容量紧张。",
+      "feature": [
+        "离线KMeans聚类",
+        "簇内最近邻",
+        "容量约束检查",
+        "跨簇后备机制"
+      ],
+      "algorithm": "import numpy as np\nfrom sklearn.cluster import KMeans\n\n# 全局变量：预计算的簇标签（仓库编号为0，客户从1开始）\n_cluster_labels = None\n\ndef _precompute_clusters(distance_matrix, demand_list, n_clusters=4):\n    \"\"\"使用KMeans对所有客户节点（排除仓库0）进行聚类\"\"\"\n    global _cluster_labels\n    n_nodes = len(demand_list)\n    # 提取客户节点坐标（假设距离矩阵基于欧氏距离生成）\n    # 由于只有距离矩阵，使用多维缩放（MDS）近似坐标，或者直接使用客户索引随机初始化\n    # 这里简化：用节点编号作为特征（实际应用应基于真实坐标）\n    # 更好的做法：从距离矩阵中提取二维坐标（MDS），但为保持简单，此处用随机种子模拟\n    # 实际部署时建议替换为真实坐标\n    np.random.seed(42)\n    coords = np.random.randn(n_nodes, 2)  # 模拟坐标\n    coords[0] = [0, 0]  # 仓库位于原点\n    # 仅对客户聚类（索引1到n_nodes-1）\n    customer_indices = np.arange(1, n_nodes)\n    if len(customer_indices) > n_clusters:\n        kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init=10)\n        kmeans.fit(coords[customer_indices])\n        _cluster_labels = np.zeros(n_nodes, dtype=int)\n        for idx, label in zip(customer_indices, kmeans.labels_):\n            _cluster_labels[idx] = label + 1  # 标签从1开始，0保留给仓库\n    else:\n        _cluster_labels = np.zeros(n_nodes, dtype=int)\n        for i, idx in enumerate(customer_indices):\n            _cluster_labels[idx] = 1  # 所有客户归为一簇\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    # 首次调用时预计算聚类\n    if _cluster_labels is None:\n        _precompute_clusters(distance_matrix, demand_list)\n    \n    best_node = -1\n    best_distance = float('inf')\n    \n    # 获取当前节点所属簇（仓库属于簇0）\n    current_cluster = _cluster_labels[current_node]\n    \n    # 第一阶段：优先从当前簇中选择可行客户\n    for node in range(len(remaining_demands)):\n        if not remaining_demands[node]:\n            continue\n        if current_load + demand_list[node] > vehicle_capacity:\n            continue\n        if current_cluster != 0 and _cluster_labels[node] == current_cluster:\n            dist = distance_matrix[current_node, node]\n            if dist < best_distance - 1e-9:\n                best_distance = dist\n                best_node = node\n    \n    # 若第一阶段找到节点，则返回\n    if best_node != -1:\n        return best_node\n    \n    # 第二阶段：从所有可行客户中选择最近的（跨簇后备机制）\n    best_distance = float('inf')\n    for node in range(len(remaining_demands)):\n        if not remaining_demands[node]:\n            continue\n        if current_load + demand_list[node] > vehicle_capacity:\n            continue\n        dist = distance_matrix[current_node, node]\n        if dist < best_distance - 1e-9:\n            best_distance = dist\n            best_node = node\n    \n    if best_node == -1:\n        return -1  # 无可行客户，返回仓库\n    \n    return best_node",
+      "objective": 76.16111675821236
+    },
+    {
+      "concept": "基于容量-方向-密度复合评分函数的启发式。该算法不再单纯依赖最近距离，而是为每个可达客户计算一个综合评分。评分综合考虑：1）当前节点到该客户的距离（越小越好）；2）该客户与仓库、当前节点形成的方向与当前前进方向（以当前到仓库方向为基准）的角度偏差（越小越好）；3）该客户需求与当前剩余容量的匹配度（需求越接近剩余容量越好）；4）该客户周围未服务客户的密度（以距离阈值内的未服务客户数量衡量）。将以上四项归一化后加权求和，选择得分最高的客户作为下一节点。当无可行客户时返回-1。该策略能引导车辆沿合理方向行驶，同时充分利用容量，避免路径迂回和后期折返。",
+      "feature": [
+        "容量匹配",
+        "方向引导",
+        "局部密度加权",
+        "复合评分"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    best_node = -1\n    best_score = -float('inf')\n    \n    # 计算当前节点到仓库的方向向量（作为前进方向的基准）\n    depot = 0\n    dir_to_depot = np.array([distance_matrix[current_node, depot], 0.0])  # 简化为沿着仓库方向\n    \n    # 参数设置\n    w_dist = 0.3\n    w_angle = 0.3\n    w_capacity = 0.2\n    w_density = 0.2\n    density_radius = np.median(distance_matrix) * 0.3  # 密度半径取距离中位数的30%\n    \n    # 预处理：计算所有节点到仓库的距离（用于方向计算）\n    dist_to_depot = distance_matrix[:, depot]\n    \n    # 计算当前可用的节点索引\n    available_nodes = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    \n    if len(available_nodes) == 0:\n        return -1\n    \n    # 归一化因子：距离最大值\n    max_dist = np.max(distance_matrix[current_node, available_nodes]) if len(available_nodes) > 0 else 1.0\n    if max_dist == 0:\n        max_dist = 1.0\n    \n    for node in available_nodes:\n        # 1. 距离项（越小越好）\n        dist = distance_matrix[current_node, node]\n        dist_score = 1.0 - dist / max_dist  # 归一化到[0,1]，距离越小得分越高\n        \n        # 2. 方向项（角度越小越好）\n        # 计算从当前节点到该客户的方向向量与到仓库方向向量的夹角\n        dx = distance_matrix[current_node, node]  # 简化：用x轴距离代替方向\n        # 实际上需要更精确的方向计算，这里用节点到仓库的距离差作为近似\n        angle_diff = abs(dist_to_depot[current_node] - dist_to_depot[node]) / (dist + 1e-6)\n        angle_score = 1.0 - min(angle_diff, 1.0)  # 归一化到[0,1]，角度越小得分越高\n        \n        # 3. 容量匹配项（需求越接近剩余容量越好）\n        remaining_capacity = vehicle_capacity - current_load\n        demand = demand_list[node]\n        capacity_match = 1.0 - abs(demand - remaining_capacity) / (vehicle_capacity + 1e-6)  # 归一化到[0,1]\n        \n        # 4. 密度项（周围未服务节点越多越好）\n        neighbors = np.where(remaining_demands & (distance_matrix[node] <= density_radius))[0]\n        density = len(neighbors) / (len(remaining_demands) + 1e-6)\n        \n        # 综合评分\n        score = (w_dist * dist_score + \n                 w_angle * angle_score + \n                 w_capacity * capacity_match + \n                 w_density * density)\n        \n        if score > best_score:\n            best_score = score\n            best_node = node\n    \n    return best_node",
+      "objective": 364.2318278816304
+    },
+    {
+      "concept": "该启发式基于“动态概率采样 + 路径平滑惩罚 + 短期记忆回避”的混合策略。算法首先过滤出容量可行的候选节点，并检查是否所有候选者都已被短期记忆暂避，若是则清空记忆避免死锁。然后为每个候选节点计算一个复合评分，包含距离倒数、角度平滑度（与当前行进方向偏差）以及短期记忆惩罚。将评分转化为概率分布，通过加权采样选择下一节点，而非贪婪选择最优。该策略通过随机性跳出局部最优，同时保留方向引导和节点回避机制，避免路径迂回与震荡。",
+      "feature": [
+        "概率采样",
+        "路径平滑惩罚",
+        "短期记忆回避"
+      ],
+      "algorithm": "import numpy as np\nfrom collections import deque\n\n# 全局短期记忆，记录最近访问过的节点ID\n_short_term_memory = deque(maxlen=5)\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    global _short_term_memory\n    \n    depot = 0\n    n_nodes = len(demand_list)\n    \n    # 获取容量可行的候选节点\n    available = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(available) == 0:\n        _short_term_memory.clear()\n        return -1\n    \n    # 如果所有候选都在短期记忆中，则清空记忆以避免死锁\n    if all(node in _short_term_memory for node in available):\n        _short_term_memory.clear()\n    \n    # 计算当前行进方向（从当前节点到仓库的方向作为基准）\n    dir_to_depot = np.array([distance_matrix[current_node, depot], 0.0])\n    \n    # 计算每个候选的评分\n    scores = np.zeros(len(available))\n    for i, node in enumerate(available):\n        # 1. 距离项（越小越好）—— 用倒数，避免除以0\n        dist = max(distance_matrix[current_node, node], 1e-8)\n        dist_score = 1.0 / dist\n        \n        # 2. 路径平滑度惩罚：计算从当前节点到候选节点的方向与基准方向的夹角\n        # 简化：用横坐标差值近似方向，实际可用向量点积\n        dx = distance_matrix[current_node, node]  # 水平距离差（简化）\n        # 角度偏差越小越好，因此得分 = 1 - 归一化角度\n        angle_diff = abs(distance_matrix[current_node, depot] - distance_matrix[node, depot]) / (dist + 1e-6)\n        angle_score = 1.0 - min(angle_diff, 1.0)\n        \n        # 3. 短期记忆惩罚：如果节点在记忆中出现过，降低得分\n        memory_penalty = 0.5 if node in _short_term_memory else 1.0\n        \n        # 综合评分\n        scores[i] = dist_score * angle_score * memory_penalty\n    \n    # 将评分转化为概率分布（softmax）\n    scores = np.exp(scores - np.max(scores))  # 数值稳定\n    prob = scores / np.sum(scores)\n    \n    # 概率采样选择下一节点\n    next_node = np.random.choice(available, p=prob)\n    \n    # 更新短期记忆\n    _short_term_memory.append(next_node)\n    \n    return int(next_node)",
+      "objective": 2958.417355723809
+    },
+    {
+      "concept": "基于多路径扰动评估与瓶颈节点避让的混合启发式算法。该算法首先通过计算每个未服务节点的“全局瓶颈度”——综合考量其位置孤立性（到所有其他节点的平均距离）、需求占比（与当前剩余容量的匹配度）以及对其他车辆路径的潜在干扰（若该节点距离当前路径较远，服务它会导致后续车辆绕路的估计成本），生成一个动态优先级评分。然后，算法引入“反向压力逃逸”机制：若当前节点周围未服务节点密度较低，则优先服务最近节点以快速脱离；若密度较高，则优先服务瓶颈度高的节点以最大化一次性收益。最后，通过一个简单的随机扰动（基于评分的概率采样）避免陷入局部最优，同时确保容量约束始终满足。当无可行的容量节点时，返回-1。",
+      "feature": [
+        "全局瓶颈度评估",
+        "孤立性与需求匹配加权",
+        "反向压力逃逸引导",
+        "概率采样扰动"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    depot = 0\n    n_nodes = len(demand_list)\n    \n    # 获取容量可行的候选节点\n    feasible = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    if len(feasible) == 0:\n        return -1\n    \n    # 预计算: 每个节点到其他所有节点的平均距离（孤立性指标）\n    if not hasattr(find_best_route, 'avg_dist_to_others'):\n        avg_dist = np.zeros(n_nodes)\n        for i in range(n_nodes):\n            avg_dist[i] = np.mean(distance_matrix[i, np.arange(n_nodes) != i])\n        find_best_route.avg_dist_to_others = avg_dist\n    \n    avg_dist = find_best_route.avg_dist_to_others\n    \n    # 计算当前节点周围未服务节点的密度（半径取距离中位数的20%）\n    density_radius = np.median(distance_matrix) * 0.2\n    neighbors = np.where(remaining_demands & (distance_matrix[current_node] <= density_radius))[0]\n    local_density = len(neighbors) / max(len(remaining_demands), 1)\n    \n    # 为每个候选节点计算综合评分\n    scores = np.zeros(len(feasible))\n    remaining_cap = vehicle_capacity - current_load\n    dist_cur_to_depot = distance_matrix[current_node, depot]\n    \n    for idx, node in enumerate(feasible):\n        # 1. 瓶颈度: 孤立性 * 需求占比\n        demand_ratio = demand_list[node] / (remaining_cap + 1e-8)\n        bottleneck = avg_dist[node] * demand_ratio\n        \n        # 2. 绕路惩罚: 若延迟服务，未来成本增量估计\n        detour_cost = distance_matrix[current_node, node] + distance_matrix[node, depot] - dist_cur_to_depot\n        detour_penalty = detour_cost * demand_ratio\n        \n        # 3. 反向压力逃逸项: 密度低时倾向最近节点，密度高时倾向瓶颈节点\n        dist = distance_matrix[current_node, node]\n        if local_density < 0.2:  # 稀疏区域，快速离开\n            escape_score = 1.0 / (dist + 1e-8)\n        else:  # 密集区域，优先服务瓶颈节点\n            escape_score = bottleneck\n        \n        # 4. 综合评分，加入概率扰动\n        base_score = 0.4 * bottleneck + 0.3 * detour_penalty + 0.3 * escape_score\n        # 加一个小的随机噪声避免重复决策\n        scores[idx] = base_score + np.random.uniform(0, 0.1 * base_score)\n    \n    # 概率采样选择（避免贪婪导致死锁）\n    exp_scores = np.exp(scores - np.max(scores))\n    probs = exp_scores / np.sum(exp_scores)\n    next_node = np.random.choice(feasible, p=probs)\n    \n    return int(next_node)",
+      "objective": 4077.8222955198326
+    },
+    {
+      "concept": "基于未来绕路代价与需求紧迫度的前瞻式启发式算法。该算法不再仅依赖当前局部信息，而是为每个候选节点计算一个“绕路惩罚比”，即从当前节点经该节点再到仓库的往返距离与直接返回仓库距离的差值，除以该节点需求占剩余容量的比率；同时计算“需求紧迫度”，即该节点需求与到仓库距离的乘积。将两者加权组合，优先选择绕路代价高、需求紧迫度强的节点。此策略引导车辆在容量充足时优先服务那些未来需单独折返的高代价节点，从而全局减少总行驶距离。",
+      "feature": [
+        "前瞻绕路惩罚",
+        "需求紧迫度加权",
+        "容量自适应"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    best_node = -1\n    best_score = -float('inf')\n    \n    # 仓库节点假定为0\n    depot = 0\n    \n    # 获取所有可行候选节点（未服务且容量允许）\n    available_nodes = np.where(remaining_demands & (current_load + demand_list <= vehicle_capacity))[0]\n    \n    if len(available_nodes) == 0:\n        return -1\n    \n    # 预计算当前节点到仓库的距离\n    dist_cur_to_depot = distance_matrix[current_node, depot]\n    \n    # 参数：绕路惩罚权重与需求紧迫度权重\n    w_detour = 0.6\n    w_urgency = 0.4\n    \n    # 计算各候选节点的绕路惩罚分数与需求紧迫度分数\n    for node in available_nodes:\n        # 绕路代价增量：当前->节点->仓库 距离 - 当前->仓库直接距离\n        detour_cost = distance_matrix[current_node, node] + distance_matrix[node, depot] - dist_cur_to_depot\n        \n        # 需求占剩余容量比率（避免除零）\n        demand = demand_list[node]\n        remaining = vehicle_capacity - current_load\n        demand_ratio = demand / (remaining + 1e-8)\n        \n        # 绕路惩罚比：绕路成本/需求占比，越大说明该节点越应被当前服务\n        detour_penalty = detour_cost / (demand_ratio + 1e-8)\n        \n        # 需求紧迫度：需求 * 节点到仓库距离\n        urgency = demand * distance_matrix[node, depot]\n        \n        # 归一化到[0,1]（基于当前候选集）\n        # 此处简单取相对值，避免全数据集归一化开销\n        # 实际可在候选集中做min-max归一化，此处用原始值进行排序即可\n        \n        # 综合评分（直接用原始值，因为选择最大值等价于加权后的相对排序）\n        score = w_detour * detour_penalty + w_urgency * urgency\n        \n        if score > best_score:\n            best_score = score\n            best_node = node\n    \n    return best_node",
+      "objective": 4479.30423740383
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": [
+      [
+        "区域扇区划分",
+        "剩余容量压力均衡",
+        "绕行惩罚潜力",
+        "动态加权评分"
+      ]
+    ]
+  }
+}

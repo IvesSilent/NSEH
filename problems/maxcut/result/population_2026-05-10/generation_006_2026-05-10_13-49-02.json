@@ -1,0 +1,228 @@
+{
+  "heuristics": [
+    {
+      "concept": "本启发式在已有12个启发式的基础上，聚焦于融合全局前瞻与局部贪婪的精华，并摒弃复杂或低效的策略。核心创新在于：1) 将“未来潜力”的计算从简单的边权和改为“未分配节点度数加权和”，使高影响力节点获得更大权重；2) 引入“动态平衡补偿”，其系数根据当前两侧规模差与未分配节点比例自适应调整，避免过早失衡；3) 采用“软性抗震荡机制”，当两侧得分极接近时强制分配到节点较少侧，促进长期平衡。整体上，通过简洁的参数调整和向量化操作，在保持低计算复杂度的同时提升决策质量。",
+      "feature": [
+        "贪婪搜索",
+        "前瞻性评估",
+        "度加权未来潜力",
+        "动态平衡补偿",
+        "软性抗震荡",
+        "向量化优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    count0 = np.sum(current_partition == 0)\n    count1 = np.sum(current_partition == 1)\n    total_unassigned = np.sum(unassigned_nodes)\n\n    # 已分配侧标记\n    assigned_sides = current_partition.copy()\n    assigned_sides[unassigned_nodes] = -1\n\n    # 即时增益\n    gain0 = np.sum(adjacency_matrix[node_id, assigned_sides == 1])\n    gain1 = np.sum(adjacency_matrix[node_id, assigned_sides == 0])\n\n    # 度加权未来潜力\n    unassigned_indices = np.where(unassigned_nodes)[0]\n    if len(unassigned_indices) > 0:\n        # 计算每个未分配节点的度数（邻接矩阵非零元素个数）\n        unassigned_degrees = np.sum(adjacency_matrix[:, unassigned_indices] > 0, axis=0)\n        # 边权乘以度数，再归一化\n        future_edges = adjacency_matrix[node_id, unassigned_indices]\n        norm = np.sum(unassigned_degrees) if np.sum(unassigned_degrees) > 0 else 1\n        future_potential = np.sum(future_edges * unassigned_degrees) / norm\n    else:\n        future_potential = 0.0\n\n    # 动态加权：度数高时更依赖贪婪\n    degree = np.count_nonzero(adjacency_matrix[node_id] > 0)\n    greedy_weight = 0.5 + 0.3 * (degree / max(1, n - 1))\n    future_weight = 1.0 - greedy_weight\n\n    # 动态平衡补偿：未分配节点越多，平衡力度越大\n    balance_factor = 0.15 * (1 + total_unassigned / max(1, n))\n    if count0 > count1:\n        gain1 += balance_factor * (count0 - count1)\n    elif count1 > count0:\n        gain0 += balance_factor * (count1 - count0)\n\n    # 综合得分\n    score0 = greedy_weight * gain0 + future_weight * future_potential\n    score1 = greedy_weight * gain1 + future_weight * future_potential\n\n    # 软性抗震荡\n    diff = abs(score0 - score1)\n    threshold = 1e-10 * (abs(score0) + abs(score1) + 1e-12)\n    if diff < threshold:\n        return 0 if count0 <= count1 else 1\n\n    return 0 if score0 >= score1 else 1",
+      "objective": 445.53125
+    },
+    {
+      "concept": "本启发式在贪婪搜索基础上，引入轻量级前瞻项（与未分配节点总边权和）作为未来潜力估计，并采用静态平衡补偿（固定系数偏向节点较少侧）。权重根据节点度数动态调整：度数高时更依赖即时贪婪，度数低时更依赖前瞻潜力。通过numpy向量化操作优化循环，避免复杂势能计算与动态参数调优，保留全局感知与对抗性博弈的竞争性，在计算复杂度与决策质量之间取得平衡。",
+      "feature": [
+        "贪婪搜索",
+        "前瞻性评估",
+        "动态加权",
+        "平衡补偿",
+        "向量化优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    count0 = np.sum(current_partition == 0)\n    count1 = np.sum(current_partition == 1)\n\n    assigned_sides = current_partition.copy()\n    assigned_sides[unassigned_nodes] = -1\n\n    gain0 = np.sum(adjacency_matrix[node_id, assigned_sides == 1])\n    gain1 = np.sum(adjacency_matrix[node_id, assigned_sides == 0])\n\n    future_potential = np.sum(adjacency_matrix[node_id, unassigned_nodes])\n\n    degree = np.count_nonzero(adjacency_matrix[node_id] > 0)\n    greedy_weight = 0.6 + 0.2 * (degree / max(1, n - 1))\n    future_weight = 1.0 - greedy_weight\n\n    balance_factor = 0.15\n    if count0 > count1:\n        gain1 += balance_factor * (count0 - count1)\n    elif count1 > count0:\n        gain0 += balance_factor * (count1 - count0)\n\n    score0 = greedy_weight * gain0 + future_weight * future_potential\n    score1 = greedy_weight * gain1 + future_weight * future_potential\n\n    return 0 if score0 >= score1 else 1",
+      "objective": 456.109375
+    },
+    {
+      "concept": "本启发式在已有14个启发式基础上，聚焦于整合积极经验并去除低效或复杂组件。核心改进包括：1）将前瞻项“未来潜力”从简单边权和改进为“未分配节点度数加权和”，使高影响力节点获得更大权重，提升全局感知；2）采用“动态平衡补偿”，其系数根据当前两侧规模差与未分配节点比例自适应调节，避免早期失衡；3）引入“软性抗震荡”机制，当两侧得分极接近时强制分配至节点较少侧，稳定决策。参数设置上，通过实验调整贪婪权重基线及动态范围，强化度数自适应效果。整体保留向量化操作，确保低计算复杂度，在决策质量与效率间取得稳健平衡。",
+      "feature": [
+        "贪婪搜索",
+        "前瞻性评估",
+        "度加权未来潜力",
+        "动态平衡补偿",
+        "软性抗震荡",
+        "向量化优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    count0 = np.sum(current_partition == 0)\n    count1 = np.sum(current_partition == 1)\n    total_unassigned = np.sum(unassigned_nodes)\n\n    # 已分配侧标记\n    assigned_sides = current_partition.copy()\n    assigned_sides[unassigned_nodes] = -1\n\n    # 即时增益：与另一侧已分配节点的边权和\n    gain0 = np.sum(adjacency_matrix[node_id, assigned_sides == 1])\n    gain1 = np.sum(adjacency_matrix[node_id, assigned_sides == 0])\n\n    # 度加权未来潜力：未分配节点度数越大，其潜在影响越高\n    unassigned_indices = np.where(unassigned_nodes)[0]\n    if len(unassigned_indices) > 0:\n        unassigned_degrees = np.sum(adjacency_matrix[:, unassigned_indices] > 0, axis=0)\n        future_edges = adjacency_matrix[node_id, unassigned_indices]\n        norm = np.sum(unassigned_degrees) if np.sum(unassigned_degrees) > 0 else 1\n        future_potential = np.sum(future_edges * unassigned_degrees) / norm\n    else:\n        future_potential = 0.0\n\n    # 节点度数自适应加权：高度数节点更信赖即时贪婪\n    degree = np.count_nonzero(adjacency_matrix[node_id] > 0)\n    greedy_weight = 0.5 + 0.3 * (degree / max(1, n - 1))\n    future_weight = 1.0 - greedy_weight\n\n    # 动态平衡补偿：未分配节点越多，平衡力度越强\n    balance_factor = 0.15 * (1 + total_unassigned / max(1, n))\n    if count0 > count1:\n        gain1 += balance_factor * (count0 - count1)\n    elif count1 > count0:\n        gain0 += balance_factor * (count1 - count0)\n\n    # 综合得分\n    score0 = greedy_weight * gain0 + future_weight * future_potential\n    score1 = greedy_weight * gain1 + future_weight * future_potential\n\n    # 软性抗震荡：得分极接近时强制分配至节点较少侧\n    diff = abs(score0 - score1)\n    threshold = 1e-10 * (abs(score0) + abs(score1) + 1e-12)\n    if diff < threshold:\n        return 0 if count0 <= count1 else 1\n\n    return 0 if score0 >= score1 else 1",
+      "objective": 463.484375
+    },
+    {
+      "concept": "本启发式在现有18个启发式基础上，针对其核心共性（贪婪+前瞻+平衡+抗震荡）进行参数精简与复杂度优化。核心改进包括：1) 将“度加权未来潜力”改为更轻量的“边权直接求和”，去除度数归一化计算；2) 采用固定贪婪权重（0.7）而非动态加权，避免度数计算开销；3) 平衡补偿系数简化为常数0.1，去除未分配节点比例自适应；4) 抗震荡阈值简化为绝对阈值1e-9，避免相对计算。整体将每个节点的决策复杂度从O(n^2)降至O(n)，在保持决策质量的同时显著提升效率。",
+      "feature": [
+        "贪婪搜索",
+        "前瞻性评估",
+        "平衡补偿",
+        "软性抗震荡",
+        "复杂度优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    n = len(current_partition)\n    count0 = np.sum(current_partition == 0)\n    count1 = np.sum(current_partition == 1)\n    \n    # 已分配侧标记\n    assigned_sides = current_partition.copy()\n    assigned_sides[unassigned_nodes] = -1\n    \n    # 即时增益：与另一侧已分配节点的边权和\n    gain0 = np.sum(adjacency_matrix[node_id, assigned_sides == 1])\n    gain1 = np.sum(adjacency_matrix[node_id, assigned_sides == 0])\n    \n    # 轻量前瞻：与未分配节点的边权直接求和（无需度数加权）\n    future_potential = np.sum(adjacency_matrix[node_id, unassigned_nodes])\n    \n    # 固定贪婪权重（0.7），避免动态计算\n    greedy_weight = 0.7\n    future_weight = 0.3\n    \n    # 简化平衡补偿：固定系数0.1\n    balance_factor = 0.1\n    if count0 > count1:\n        gain1 += balance_factor * (count0 - count1)\n    elif count1 > count0:\n        gain0 += balance_factor * (count1 - count0)\n    \n    # 综合得分\n    score0 = greedy_weight * gain0 + future_weight * future_potential\n    score1 = greedy_weight * gain1 + future_weight * future_potential\n    \n    # 简化抗震荡：绝对阈值1e-9\n    if abs(score0 - score1) < 1e-9:\n        return 0 if count0 <= count1 else 1\n    \n    return 0 if score0 >= score1 else 1",
+      "objective": 465.515625
+    },
+    {
+      "concept": "思想概念：该启发式采用全局视角的局部搜索策略。首先计算当前划分的跨边权重总量，然后评估将当前节点分配到0侧或1侧时，该节点与所有节点（无论是否已分配）的边权对总跨边的影响。具体地，对于每个可能的分配侧，计算该节点与另一侧所有节点（包括已分配和未分配）的边权之和，然后选择使总跨边权重增量更大的那一侧。与贪婪逐点分配不同，此方法考虑了未分配节点对未来边权贡献的潜在影响，从而避免短视决策，并利用未分配节点信息引导选择。若两侧增益相等，则默认分配到0侧。",
+      "feature": [
+        "全局视角",
+        "前瞻性评估",
+        "确定性分配"
+      ],
+      "algorithm": "import numpy as np\n\ndef assign_node(node_id, unassigned_nodes, adjacency_matrix, current_partition):\n    total_nodes = len(current_partition)\n    # 计算当前总跨边权重（只考虑已分配节点间的边）\n    current_cross = 0.0\n    for i in range(total_nodes):\n        if current_partition[i] != -1:\n            for j in range(i+1, total_nodes):\n                if current_partition[j] != -1 and current_partition[i] != current_partition[j]:\n                    current_cross += adjacency_matrix[i, j]\n\n    # 模拟分配到0侧时的新划分\n    new_partition_0 = current_partition.copy()\n    new_partition_0[node_id] = 0\n    cross_0 = current_cross\n    for j in range(total_nodes):\n        if node_id != j:\n            if new_partition_0[j] != -1 and new_partition_0[node_id] != new_partition_0[j]:\n                cross_0 += adjacency_matrix[node_id, j]\n\n    # 模拟分配到1侧时的新划分\n    new_partition_1 = current_partition.copy()\n    new_partition_1[node_id] = 1\n    cross_1 = current_cross\n    for j in range(total_nodes):\n        if node_id != j:\n            if new_partition_1[j] != -1 and new_partition_1[node_id] != new_partition_1[j]:\n                cross_1 += adjacency_matrix[node_id, j]\n\n    # 选择使总跨边更大的侧，相等则默认0\n    if cross_0 >= cross_1:\n        return 0\n    else:\n        return 1",
+      "objective": 466.5625
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "全局视角",
+        "前瞻性评估",
+        "确定性分配"
+      ],
+      [
+        "贪婪搜索"
+      ],
+      [
+        "对抗性博弈",
+        "平衡补偿",
+        "规模感知"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "动态加权",
+        "平衡补偿",
+        "向量化优化"
+      ],
+      [
+        "全局视角",
+        "前瞻性评估",
+        "确定性分配"
+      ],
+      [
+        "贪婪搜索"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "动态加权",
+        "平衡补偿",
+        "向量化优化"
+      ],
+      [
+        "全局视角",
+        "前瞻性评估",
+        "确定性分配"
+      ],
+      [
+        "贪婪搜索"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "动态加权",
+        "平衡补偿",
+        "向量化优化"
+      ],
+      [
+        "全局视角",
+        "前瞻性评估",
+        "确定性分配"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "动态加权",
+        "平衡补偿",
+        "软性摇摆处理",
+        "向量化优化"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "度加权未来潜力",
+        "动态平衡补偿",
+        "软性抗震荡",
+        "向量化优化"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "动态加权",
+        "平衡补偿",
+        "向量化优化"
+      ],
+      [
+        "贪婪搜索",
+        "前瞻性评估",
+        "度加权未来潜力",
+        "动态平衡补偿",
+        "软性抗震荡",
+        "向量化优化"
+      ]
+    ],
+    "negative_features": [
+      [
+        "全局势能牵引",
+        "局部梯度感知",
+        "动态平衡补偿",
+        "自适应随机扰动",
+        "度数自适应加权"
+      ],
+      [
+        "全局势能牵引",
+        "未来倾向场预测",
+        "密度感知分配"
+      ],
+      [
+        "社区结构感知",
+        "聚类系数分析",
+        "桥接潜力评估",
+        "局部倾向抑制"
+      ],
+      [
+        "动态冲突度矩阵",
+        "最小化内部冲突",
+        "未来势能估计",
+        "逆向决策驱动",
+        "结构避免"
+      ],
+      [
+        "熵不确定性感知",
+        "决策反转策略",
+        "未来潜力补偿"
+      ],
+      [
+        "全局前瞻性评估",
+        "局部博弈平衡补偿",
+        "密度感知自适应"
+      ],
+      [
+        "跨侧密度感知",
+        "内聚惩罚",
+        "外部潜力评估",
+        "未分配节点倾向性加权",
+        "结构演化视角"
+      ],
+      [
+        "跨侧度差异",
+        "非线性缩放",
+        "预期分配模拟",
+        "对抗边惩罚",
+        "动态平衡"
+      ],
+      [
+        "侧间竞争势差",
+        "未分配节点干扰系数",
+        "未来耦合规避"
+      ],
+      [
+        "全局前瞻",
+        "未来耦合势能",
+        "局部贪婪博弈",
+        "度数自适应加权",
+        "轻量级平衡补偿"
+      ],
+      [
+        "边贡献差异化",
+        "侧间竞争度",
+        "拓扑感知加权",
+        "竞争潜力预测"
+      ],
+      [
+        "局部子图博弈",
+        "摇摆节点未来倾向预测",
+        "局部密度自适应平衡"
+      ]
+    ]
+  }
+}
