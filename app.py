@@ -449,11 +449,15 @@ def migrate_csv_to_db(conn):
     print(f"[DB] CSV 数据已迁移至 SQLite ({DB_PATH})")
 
 
-def update_tag_stats(tags, is_positive=True):
+def update_tag_stats(tags, is_positive=True, cursor=None):
+    """更新标签统计。若传入 cursor 则复用该连接，不自动提交。"""
     if not tags:
         return
-    conn = get_db()
-    cursor = conn.cursor()
+    own_conn = None
+    if cursor is None:
+        conn = get_db()
+        cursor = conn.cursor()
+        own_conn = conn
     for tag in tags:
         cursor.execute("""
             INSERT INTO tag_stats (tag, positive_count, negative_count, last_seen)
@@ -463,18 +467,23 @@ def update_tag_stats(tags, is_positive=True):
                 negative_count = CASE WHEN ? THEN negative_count ELSE negative_count + 1 END,
                 last_seen = datetime('now','localtime')
         """, (tag, 1 if is_positive else 0, 1 if is_positive else 0, is_positive, not is_positive))
-    conn.commit()
-    conn.close()
+    if own_conn:
+        own_conn.commit()
+        own_conn.close()
 
 
-def update_tag_combo(tags, objective, is_positive):
+def update_tag_combo(tags, objective, is_positive, cursor=None):
+    """更新标签组合统计。若传入 cursor 则复用该连接，不自动提交。"""
     if not tags:
         return
     sorted_tags = sorted(tags)
     combo_hash = hashlib.md5(json.dumps(sorted_tags, ensure_ascii=False).encode()).hexdigest()
     tags_json = json.dumps(sorted_tags, ensure_ascii=False)
-    conn = get_db()
-    cursor = conn.cursor()
+    own_conn = None
+    if cursor is None:
+        conn = get_db()
+        cursor = conn.cursor()
+        own_conn = conn
     cursor.execute("SELECT id, avg_objective, sample_count FROM tag_combinations WHERE combo_hash = ?", (combo_hash,))
     row = cursor.fetchone()
     if row:
@@ -490,8 +499,9 @@ def update_tag_combo(tags, objective, is_positive):
             INSERT INTO tag_combinations (combo_hash, tags_json, avg_objective, sample_count, is_positive)
             VALUES (?, ?, ?, 1, ?)
         """, (combo_hash, tags_json, objective, 1 if is_positive else 0))
-    conn.commit()
-    conn.close()
+    if own_conn:
+        own_conn.commit()
+        own_conn.close()
 
 
 def load_user_info():
@@ -1722,9 +1732,9 @@ def update_population_data():
                         if isinstance(tags, list) and tags:
                             idx_pos = h.get('index', 1)
                             is_pos = idx_pos <= evolution.num_reflection
-                            update_tag_stats(tags, is_pos)
+                            update_tag_stats(tags, is_pos, cursor=cursor)
                             if h['objective'] != np.inf:
-                                update_tag_combo(tags, float(h['objective']), is_pos)
+                                update_tag_combo(tags, float(h['objective']), is_pos, cursor=cursor)
                     conn.commit()
                     conn.close()
                     conn = None
