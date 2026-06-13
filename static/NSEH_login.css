@@ -1,178 +1,306 @@
-/* ════════════════════════════════════════
-   NSEH Login v2
-   ════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════
+   NSEH — Login
+   Dark navy + Amber accent · Scientific theme
+   ═══════════════════════════════════════════════ */
 
 :root {
-  --bg: #0d1117;
-  --bg-card: #161b22;
-  --bg-input: #0d1117;
-  --border: #30363d;
-  --text: #e6edf3;
-  --text-secondary: #8b949e;
-  --accent: #f0883e;
-  --accent-hover: #f9a65a;
-  --danger: #f85149;
-  --radius: 12px;
+  --bg-deep: #060f1e;
+  --bg-primary: #0b1728;
+  --bg-card: #111e32;
+  --bg-hover: #18273f;
+  --text-primary: #e0e6ef;
+  --text-secondary: #8a9bb5;
+  --text-muted: #5a6b85;
+  --accent: #f2a149;
+  --accent-deep: #c76e0e;
+  --accent-light: #f9d2a8;
+  --accent-cream: #fce6cf;
+  --border: #1c2e48;
+  --border-focus: #f2a149;
+  --danger: #e74c3c;
+  --success: #3dcd58;
+  --radius: 10px;
   --radius-sm: 6px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.5);
+  --transition: 200ms ease;
 }
 
-[data-theme="light"] {
-  --bg: #f6f8fa;
-  --bg-card: #ffffff;
-  --bg-input: #f6f8fa;
-  --border: #d0d7de;
-  --text: #1f2328;
-  --text-secondary: #656d76;
-  --accent: #d4752e;
-  --accent-hover: #c1631a;
-  --danger: #cf222e;
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
-
-* { margin:0; padding:0; box-sizing:border-box; }
 
 body {
-  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: var(--bg);
-  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(199,110,14,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(242,161,73,0.03) 0%, transparent 50%);
 }
 
+/* ── Login Container ── */
 .login-container {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
+  padding: 24px;
 }
 
 .login-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 40px 32px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  transition: all 0.3s ease;
+  padding: 40px 36px 36px;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
 }
 
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent), var(--accent-light));
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* ── Header ── */
 .login-header {
   text-align: center;
   margin-bottom: 32px;
 }
+
 .login-header h1 {
   font-size: 2rem;
   font-weight: 700;
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  letter-spacing: 2px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  letter-spacing: 2px;
 }
+
 .login-header p {
   color: var(--text-secondary);
   font-size: 0.85rem;
   margin-top: 6px;
+  letter-spacing: 0.3px;
 }
 
-.form-group { margin-bottom: 20px; }
+.login-header .brand-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 12px;
+  display: block;
+  color: var(--accent);
+}
+
+/* ── Form ── */
+.form-group {
+  margin-bottom: 20px;
+}
+
 .form-group label {
   display: block;
-  margin-bottom: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.82rem;
   color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
 }
+
 .form-group input {
   width: 100%;
-  padding: 12px 14px;
-  background: var(--bg-input);
+  padding: 10px 14px;
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  color: var(--text);
-  font-size: 0.95rem;
-  transition: all 0.2s;
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
   outline: none;
 }
+
+.form-group input::placeholder {
+  color: var(--text-muted);
+}
+
 .form-group input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(240,136,62,0.15);
+  box-shadow: 0 0 0 3px rgba(242,161,73,0.12);
 }
-.form-group input::placeholder { color: var(--text-secondary); opacity: 0.5; }
 
-/* ── Password Show/Hide ────────────────────── */
+/* ── Password Toggle ── */
 .password-wrapper {
   position: relative;
 }
+
 .password-wrapper input {
-  padding-right: 40px;
+  padding-right: 44px;
 }
+
 .password-toggle {
   position: absolute;
-  right: 2px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
   background: none;
   border: none;
-  padding: 6px;
+  color: var(--text-muted);
   cursor: pointer;
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s;
+  padding: 6px;
   border-radius: 4px;
-}
-.password-toggle:hover {
-  color: var(--accent);
-  background: var(--accent-dim);
-}
-.password-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-.password-toggle .eye-icon {
-  display: block;
+  display: flex;
+  transition: color var(--transition);
 }
 
+.password-toggle:hover {
+  color: var(--text-secondary);
+}
+
+/* ── Error ── */
 .error-message {
   color: var(--danger);
   font-size: 0.82rem;
-  margin-bottom: 12px;
   min-height: 20px;
   text-align: center;
+  margin-bottom: 8px;
 }
 
+/* ── Button ── */
 .login-btn {
   width: 100%;
-  padding: 13px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  padding: 11px 0;
+  background: linear-gradient(135deg, var(--accent-deep), var(--accent));
   color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 1rem;
-  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: opacity var(--transition), transform 100ms ease;
   letter-spacing: 2px;
+  margin-top: 4px;
 }
-.login-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(240,136,62,0.3); }
-.login-btn:active { transform: translateY(0); }
-.login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.login-btn:hover {
+  opacity: 0.92;
+}
+
+.login-btn:active {
+  transform: scale(0.98);
+}
+
+.login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Footer ── */
 .login-footer {
   text-align: center;
   margin-top: 20px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
+  font-size: 0.82rem;
+  color: var(--text-muted);
 }
+
 .login-footer a {
   color: var(--accent);
   text-decoration: none;
-  font-weight: 500;
+  margin-left: 4px;
+  transition: color var(--transition);
 }
-.login-footer a:hover { text-decoration: underline; }
 
+.login-footer a:hover {
+  color: var(--accent-light);
+  text-decoration: underline;
+}
+
+/* ── Hidden Register Form ── */
+.register-form {
+  display: none;
+}
+
+/* ── Responsive ── */
 @media (max-width: 480px) {
+  .login-container { padding: 16px; }
   .login-card { padding: 28px 20px; }
   .login-header h1 { font-size: 1.6rem; }
+}
+
+/* ═══════════════════════════════════════════════
+   UX ENHANCEMENTS — Animation & Micro-interaction
+   ═══════════════════════════════════════════════ */
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242,161,73,0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(242,161,73,0); }
+}
+
+/* ── Card Entry ── */
+.login-card {
+  animation: fadeSlideUp 0.45s ease both;
+}
+
+/* ── Input Focus Enhancement ── */
+.form-group input:focus {
+  animation: none;
+}
+
+/* ── Error Shake ── */
+.error-message.error-shake {
+  animation: shake 0.4s ease both;
+}
+
+/* ── Button Hover Pulse ── */
+.login-btn:not(:disabled):hover {
+  animation: pulseGlow 1.2s ease infinite;
+}
+
+/* ── Form Transition ── */
+.login-form, .register-form {
+  transition: opacity 0.3s ease;
+}
+
+/* ── Password Toggle Transition ── */
+.password-toggle {
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+/* ── Smooth Label Float ── */
+.form-group label {
+  transition: color 0.2s ease;
+}
+
+.form-group:focus-within label {
+  color: var(--accent);
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

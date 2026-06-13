@@ -20,6 +20,15 @@ import numpy as np
 app = Flask(__name__)
 app.secret_key = 'nseh_secret_key_2026'
 
+# 禁用静态文件缓存（开发模式），避免浏览器 304 加载旧版 JS
+@app.after_request
+def add_cache_headers(response):
+    if response.content_type and ('text/css' in response.content_type or 'javascript' in response.content_type):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 # ── 全局 JSON 编码器（安全处理 np.inf/np.nan） ──
 import math as _math
 class _SafeEncoder(json.JSONEncoder):
@@ -1408,8 +1417,10 @@ def stop_evolution():
 @app.route('/api/get_population_data', methods=['GET'])
 def get_population_data():
     try:
-        return jsonify({'population_data': population_data, 'current_population_index': current_population_index})
+        result = jsonify({'population_data': population_data, 'current_population_index': current_population_index})
+        return result
     except Exception as e:
+        print(f"[get_population_data] 出错: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 

@@ -28,6 +28,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!userId || !password) {
       errorMsg.textContent = '请输入用户ID和密码';
+      errorMsg.classList.remove('error-shake');
+      void errorMsg.offsetHeight;
+      errorMsg.classList.add('error-shake');
       return;
     }
 
@@ -46,9 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = '/';
       } else {
         errorMsg.textContent = data.message || '登录失败，请重试';
+        errorMsg.classList.remove('error-shake');
+        void errorMsg.offsetHeight;
+        errorMsg.classList.add('error-shake');
       }
     })
-    .catch(() => { errorMsg.textContent = '网络错误，请稍后重试'; })
+    .catch(() => {
+      errorMsg.textContent = '网络错误，请稍后重试';
+      errorMsg.classList.add('error-shake');
+    })
     .finally(() => {
       btn.disabled = false;
       btn.textContent = '登 录';
@@ -88,10 +97,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!userId || !password) {
       regError.textContent = '用户ID和密码不能为空';
+      regError.classList.add('error-shake');
       return;
     }
     if (password.length < 6) {
       regError.textContent = '密码至少6位';
+      regError.classList.add('error-shake');
       return;
     }
 

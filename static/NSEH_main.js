@@ -6,6 +6,8 @@ let population_data = [];
 let lastScrollTime = 0;
 const SCROLL_INTERVAL = 15000;
 let evolutionTimer = null;
+let pollingTimers = {};
+let _featureOpenState = {};
 
 // ── Toast 通知（堆叠版）───────────────────
 const toasts = new Set();
@@ -133,10 +135,17 @@ if (saved) {
   document.documentElement.setAttribute('data-theme', saved);
   const btn = document.getElementById('theme-toggle');
   if (btn) {
-    btn.querySelector('.theme-sun').style.display = saved === 'light' ? 'none' : '';
-    btn.querySelector('.theme-moon').style.display = saved === 'light' ? '' : 'none';
+    const sun = btn.querySelector('.theme-sun');
+    const moon = btn.querySelector('.theme-moon');
+    if (sun) sun.style.display = saved === 'light' ? 'none' : '';
+    if (moon) moon.style.display = saved === 'light' ? '' : 'none';
   }
 }
+
+// 关闭详情面板（防止初始状态下右侧空列占用空间）
+closeDetailsCard();
+// 初始状态：种群区域占满宽度
+document.querySelector(".evolution-layout")?.classList.add("details-collapsed");
 
 // 尝试恢复上次配置
 restoreCachedConfig();
@@ -270,7 +279,6 @@ function initTabs() {
 }
 
 // ── 轮询管理器 ────────────────────────────────
-let pollingTimers = {};
 
 function startPolling(name, fn, interval) {
   stopPolling(name);
@@ -692,6 +700,8 @@ function startEvolution() {
     if (d.status !== 'success') throw new Error(d.message);
     showToast('进化已启动 ✓', 'success');
     if (btn) { btn.disabled = false; btn.textContent = '开始进化'; }
+    // 直接触发种群数据轮询（即使 tab click 失效也能取到数据）
+    setTimeout(fetchPopulationData, 500);
   })
   .catch(err => {
     showToast('[ERROR] ' + err.message, 'error', 5000);
@@ -744,6 +754,7 @@ function initEvolutionPage() {
 }
 
 function fetchPopulationData() {
+  console.log('[NSEH] fetchPopulationData called');
   fetch('/api/get_population_data')
     .then(r => {
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -825,8 +836,44 @@ function checkEvolutionStatus() {
 function renderPopulationData(data, currentIdx) {
   const container = document.getElementById('population-container');
   if (!container || !data?.length) return;
-  container.innerHTML = data.map((pop, gi) => renderPopCard(pop, gi)).join('');
-  // 恢复展开状态
+
+  // 增量更新：只添加新代卡片，已有卡片只更新状态
+  const existingCards = container.querySelectorAll('.population-card');
+  const existingCount = existingCards.length;
+
+  // 更新已有卡片的状态（best_objective, status）
+  for (let i = 0; i < Math.min(existingCount, data.length); i++) {
+    const card = existingCards[i];
+    const pop = data[i];
+    const statusEl = card.querySelector('.population-status');
+    const fitnessEl = card.querySelector('.best-fitness');
+    if (statusEl) {
+      const newClass = getStatusClass(pop.status);
+      if (newClass) statusEl.className = 'population-status ' + newClass;
+      statusEl.textContent = pop.status || '等待中';
+    }
+    if (fitnessEl) {
+      const best = pop.best_objective !== null && pop.best_objective !== 'undefined' && pop.best_objective !== 'null'
+        ? parseFloat(pop.best_objective).toFixed(4) : '—';
+      fitnessEl.textContent = best;
+    }
+    // 更新启发式卡片内容（首次显示或数量变化时）
+    const heurContainer = card.querySelector('.heuristics-container');
+    if (heurContainer) {
+      const newHeurHtml = renderHeuristics(pop.heuristics || []);
+      if (heurContainer.innerHTML !== newHeurHtml) {
+        heurContainer.innerHTML = newHeurHtml;
+      }
+    }
+  }
+
+  // 添加新代卡片
+  for (let i = existingCount; i < data.length; i++) {
+    const div = document.createElement('div');
+    div.innerHTML = renderPopCard(data[i], i).trim();
+    container.appendChild(div.firstChild);
+  }
+
   restoreFeatureCollapseStates();
 }
 
@@ -866,7 +913,16 @@ function renderFeatureCollapse(type, label, features, genIdx) {
   const colorClass = type === 'positive' ? 'feat-positive' : 'feat-negative';
   const icon = type === 'positive' ? '📈' : '📉';
 
-  const featureLines = features.map(f => {
+  // 特征去重：相同的标签组合只显示一次
+  const seen = new Set();
+  const uniqueFeatures = features.filter(f => {
+    const key = Array.isArray(f) ? JSON.stringify([...f].sort()) : String(f);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const featureLines = uniqueFeatures.map(f => {
     if (Array.isArray(f) && f.length > 0) {
       return f.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('<span class="tag-plus"> + </span>');
     }
@@ -878,7 +934,7 @@ function renderFeatureCollapse(type, label, features, genIdx) {
       <div class="feat-header" onclick="toggleFeatureCollapse('${collapseId}')">
         <span class="feat-icon">${icon}</span>
         <span class="feat-label">${label}</span>
-        <span class="feat-count">${features.length}</span>
+        <span class="feat-count">${uniqueFeatures.length}</span>
         <span class="feat-chevron" id="chevron-${collapseId}">▶</span>
       </div>
       <div class="feat-body" id="${collapseId}">
@@ -889,7 +945,6 @@ function renderFeatureCollapse(type, label, features, genIdx) {
 }
 
 // ── 特征列表展开状态同步 ───────────────────
-let _featureOpenState = {};
 
 function toggleFeatureCollapse(id) {
   const body = document.getElementById(id);
@@ -946,12 +1001,18 @@ function renderHeuristics(heuristics) {
       ? tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')
       : (h.feature ? `<span class="tag">${escapeHtml(h.feature)}</span>` : '');
 
+    // 启发式名称：优先用 feature 字段，没有则用 tags，最后 fallback
+    const heurName = h.feature 
+      ? (Array.isArray(h.feature) ? h.feature.join(' · ') : h.feature)
+      : (tagsHtml || '未命名启发式');
+
     return `
-      <div class="heuristic-card ${isBest ? 'best' : ''}" onclick="showHeuristicDetails(${h.index || i + 1})">
-        <div class="rank-badge">${i + 1}</div>
-        <h4>启发式 ${h.index || i + 1}</h4>
-        <div class="heuristic-feature">${tagsHtml || '—'}</div>
-        <div class="heuristic-objective">适应度: ${obj}</div>
+      <div class="heuristic-card ${isBest ? 'best' : ''}" onclick="showHeuristicDetails(${h.index || i + 1})" title="${escapeHtml(heurName)}">
+        <div class="heur-top">
+          <div class="heur-name" title="${escapeHtml(heurName)}">${escapeHtml(heurName)}</div>
+          <div class="heur-obj${isBest ? ' heur-obj-best' : ''}">${obj}</div>
+        </div>
+        <div class="heur-tags">${tagsHtml || '<span class="heur-no-tags">无标签</span>'}</div>
       </div>
     `;
   }).join('');
@@ -973,12 +1034,18 @@ function showHeuristicDetails(index) {
 
   document.getElementById('heuristic-details-container').style.display = 'block';
   document.body.classList.add('details-visible');
+  // 让种群区域释放右侧空间
+  const layout = document.querySelector('.evolution-layout');
+  if (layout) layout.classList.remove('details-collapsed');
 }
 
 function closeDetailsCard() {
   const el = document.getElementById('heuristic-details-container');
   if (el) el.style.display = 'none';
   document.body.classList.remove('details-visible');
+  // 种群区域恢复全宽
+  const layout = document.querySelector('.evolution-layout');
+  if (layout) layout.classList.add('details-collapsed');
 }
 
 function copyAlgorithm() {
@@ -1134,15 +1201,16 @@ function renderMultiLineChart() {
   if (!valid.length) return;
   const labels = [], best = [], avg = [], vari = [];
   valid.forEach(p => {
-    labels.push('#' + (p.index != null ? p.index : ''));
     const vals = p.heuristics.map(h => h.objective).filter(v => v != null && v !== 'null' && v !== Infinity).map(Number);
     if (!vals.length) return;
+    labels.push('#' + (p.index != null ? p.index : ''));
     best.push(Math.min(...vals));
     const m = vals.reduce((a, b) => a + b, 0) / vals.length;
     avg.push(m);
     vari.push(vals.reduce((s, v) => s + (v - m) ** 2, 0) / vals.length);
   });
   if (!labels.length) return;
+  console.log('[NSEH Chart] multi data:', {labels, best, avg, vari});
   if (resultsChart) resultsChart.destroy();
   const canvas = document.getElementById('results-chart');
   if (!canvas) return;
@@ -1150,11 +1218,11 @@ function renderMultiLineChart() {
   resultsChart = new Chart(canvas, {
     type: 'line',
     data: { labels, datasets: [
-      { label: '最优值', data: best, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.05)', fill: false, tension: 0.3, pointRadius: 4, borderWidth: 2.5 },
-      { label: '均值', data: avg, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2, borderDash: [5,3] },
-      { label: '方差', data: vari, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 1.5, borderDash: [2,4] }
+      { label: '最优值', data: best, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.05)', fill: false, tension: 0.3, pointRadius: 4, borderWidth: 2.5, yAxisID: 'y' },
+      { label: '均值', data: avg, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2, borderDash: [5,3], yAxisID: 'y' },
+      { label: '方差', data: vari, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 1.5, borderDash: [2,4], yAxisID: 'y1' }
     ] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: '进化代数', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { title: { display: true, text: '适应度', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: '进化代数', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { type: 'linear', display: true, position: 'left', title: { display: true, text: '适应度', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '方差', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
   });
 }
 
