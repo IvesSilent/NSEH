@@ -1588,36 +1588,37 @@ def update_user_best_score():
     global user_id, user_best_score
     if not user_id or user_best_score is None:
         return
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT best_score FROM users WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        update_needed = False
-        if row is None:
-            update_needed = True
-        else:
-            current = row['best_score']
-            if current is None:
+    with db_lock:
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT best_score FROM users WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            update_needed = False
+            if row is None:
                 update_needed = True
             else:
-                try:
-                    ubs = float(user_best_score)
-                    if (evolution and evolution.ascend and ubs < current) or \
-                       (evolution and not evolution.ascend and ubs > current):
-                        update_needed = True
-                except (ValueError, TypeError):
-                    pass
-        if update_needed:
-            cursor.execute(
-                "UPDATE users SET best_score = ?, updated_at = datetime('now','localtime') WHERE user_id = ?",
-                (float(user_best_score), user_id)
-            )
-            conn.commit()
-            print(f"用户 {user_id} 最佳适应度更新为 {user_best_score}")
-        conn.close()
-    except Exception as e:
-        print(f"更新最佳适应度时出错: {e}")
+                current = row['best_score']
+                if current is None:
+                    update_needed = True
+                else:
+                    try:
+                        ubs = float(user_best_score)
+                        if (evolution and evolution.ascend and ubs < current) or \
+                           (evolution and not evolution.ascend and ubs > current):
+                            update_needed = True
+                    except (ValueError, TypeError):
+                        pass
+            if update_needed:
+                cursor.execute(
+                    "UPDATE users SET best_score = ?, updated_at = datetime('now','localtime') WHERE user_id = ?",
+                    (float(user_best_score), user_id)
+                )
+                conn.commit()
+                print(f"用户 {user_id} 最佳适应度更新为 {user_best_score}")
+            conn.close()
+        except Exception as e:
+            print(f"更新最佳适应度时出错: {e}")
 
 
 # ── JSON 安全转换 ────────────────────────────────
@@ -2010,19 +2011,20 @@ def run_evolution():
         evolution_completed = True
         app.config['evolution_completed'] = True
         update_user_best_score()
-        try:
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE experiments SET end_time = datetime('now','localtime'), status = 'completed',
-                    best_objective = ?
-                WHERE user_id = ? AND status = 'running'
-            """, (evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else None,
-                  user_id or 'anonymous'))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"[DB] 更新实验状态出错: {e}")
+        with db_lock:
+            try:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE experiments SET end_time = datetime('now','localtime'), status = 'completed',
+                        best_objective = ?
+                    WHERE user_id = ? AND status = 'running'
+                """, (evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else None,
+                      user_id or 'anonymous'))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"[DB] 更新实验状态出错: {e}")
     else:
         print("[进化] 被终止或超时")
         evolution_completed = False
