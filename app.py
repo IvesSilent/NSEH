@@ -20,6 +20,42 @@ import numpy as np
 app = Flask(__name__)
 app.secret_key = 'nseh_secret_key_2026'
 
+# ── 全局 JSON 编码器（安全处理 np.inf/np.nan） ──
+import math as _math
+class _SafeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            if hasattr(obj, 'dtype'):  # numpy scalar
+                v = float(obj)
+                return None if _math.isinf(v) or _math.isnan(v) else v
+            if isinstance(obj, float) and (_math.isinf(obj) or _math.isnan(obj)):
+                return None
+            return super().default(obj)
+        except:
+            return None
+    def encode(self, o):
+        return super().encode(_sanitize_for_json(o))
+    def iterencode(self, o, _one_shot=False):
+        return super().iterencode(_sanitize_for_json(o), _one_shot)
+
+def _sanitize_for_json(obj):
+    """递归将 dict/list 中的 inf/nan 替换为 None"""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, float):
+        return None if _math.isinf(obj) or _math.isnan(obj) else obj
+    try:
+        v = float(obj)
+        if _math.isinf(v) or _math.isnan(v):
+            return None
+    except:
+        pass
+    return obj
+
+app.json_encoder = _SafeEncoder
+
 # ── 全局状态 ────────────────────────────────────────────
 evolution = None
 evolution_thread = None
@@ -1584,6 +1620,20 @@ def update_user_best_score():
         print(f"更新最佳适应度时出错: {e}")
 
 
+# ── JSON 安全转换 ────────────────────────────────
+def _safe_obj(val):
+    """将 np.inf / float('inf') / None 等不安全值转为 None，确保 JSON 序列化安全"""
+    if val is None:
+        return None
+    try:
+        v = float(val)
+        import math
+        if math.isinf(v) or math.isnan(v):
+            return None
+        return v
+    except (ValueError, TypeError, OverflowError):
+        return None
+
 def update_population_data():
     global evolution, population_data, current_population_index, user_best_score
     try:
@@ -1607,7 +1657,7 @@ def update_population_data():
                 'concept': h['concept'],
                 'feature': feat_display,
                 'algorithm': h['algorithm'],
-                'objective': h['objective'],
+                'objective': _safe_obj(h['objective']),
                 'tags': h.get('feature', []) if isinstance(h.get('feature', []), list) else []
             }
 
@@ -1629,44 +1679,45 @@ def update_population_data():
         app.config['population_data'] = population_data
         app.config['current_population_index'] = current_population_index
 
-        # 记录快照
-        try:
-            conn = get_db()
-            cursor = conn.cursor()
-            gen_idx = population_data[current_population_index]['index']
-            status = population_data[current_population_index].get('status', '')
-            best_obj = population_data[current_population_index].get('best_objective')
-            if best_obj == 'null' or best_obj is None:
-                best_obj = None
-            cursor.execute("""
-                SELECT id FROM experiments WHERE user_id = ? AND status = 'running'
-                ORDER BY id DESC LIMIT 1
-            """, (user_id or 'anonymous',))
-            exp_row = cursor.fetchone()
-            if not exp_row:
+        # 记录快照（使用 db_lock 防止 SQLite 并发写冲突）
+        with db_lock:
+            try:
+                conn = get_db()
+                cursor = conn.cursor()
+                gen_idx = population_data[current_population_index]['index']
+                status = population_data[current_population_index].get('status', '')
+                best_obj = population_data[current_population_index].get('best_objective')
+                if best_obj == 'null' or best_obj is None:
+                    best_obj = None
                 cursor.execute("""
-                    INSERT INTO experiments (user_id, config_json, status) VALUES (?, '{}', 'running')
+                    SELECT id FROM experiments WHERE user_id = ? AND status = 'running'
+                    ORDER BY id DESC LIMIT 1
                 """, (user_id or 'anonymous',))
-                exp_id = cursor.lastrowid
-            else:
-                exp_id = exp_row['id']
-            cursor.execute("""
-                INSERT INTO population_snapshots (experiment_id, generation, status, best_objective, snapshot_json)
-                VALUES (?, ?, ?, ?, ?)
-            """, (exp_id, gen_idx, status, best_obj,
-                  json.dumps(population_data[current_population_index], ensure_ascii=False, default=str)))
-            for h in evolution.population['heuristics']:
-                tags = h.get('feature', [])
-                if isinstance(tags, list) and tags:
-                    idx_pos = h.get('index', 1)
-                    is_pos = idx_pos <= evolution.num_reflection
-                    update_tag_stats(tags, is_pos)
-                    if h['objective'] != np.inf:
-                        update_tag_combo(tags, float(h['objective']), is_pos)
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"[DB] 记录快照时出错: {e}")
+                exp_row = cursor.fetchone()
+                if not exp_row:
+                    cursor.execute("""
+                        INSERT INTO experiments (user_id, config_json, status) VALUES (?, '{}', 'running')
+                    """, (user_id or 'anonymous',))
+                    exp_id = cursor.lastrowid
+                else:
+                    exp_id = exp_row['id']
+                cursor.execute("""
+                    INSERT INTO population_snapshots (experiment_id, generation, status, best_objective, snapshot_json)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (exp_id, gen_idx, status, best_obj,
+                      json.dumps(population_data[current_population_index], ensure_ascii=False, default=str)))
+                for h in evolution.population['heuristics']:
+                    tags = h.get('feature', [])
+                    if isinstance(tags, list) and tags:
+                        idx_pos = h.get('index', 1)
+                        is_pos = idx_pos <= evolution.num_reflection
+                        update_tag_stats(tags, is_pos)
+                        if h['objective'] != np.inf:
+                            update_tag_combo(tags, float(h['objective']), is_pos)
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"[DB] 记录快照时出错: {e}")
     except Exception as e:
         print(f"更新种群数据时出错: {e}")
 
@@ -1683,7 +1734,7 @@ def EvoFrame_initialize_population():
             'index': 0,
             'title': '初始化种群',
             'status': '正在生成',
-            'best_objective': 'null',
+            'best_objective': None,
             'memory': {
                 'positive_features': evolution.population['memory']['positive_features'],
                 'negative_features': evolution.population['memory']['negative_features']
@@ -1784,7 +1835,7 @@ def EvoFrame_single_generation():
         'index': current_population_index,
         'title': f'第{current_population_index}代种群',
         'status': '开始生成',
-        'best_objective': 'null',
+        'best_objective': None,
         'memory': {'positive_features': [], 'negative_features': []},
         'heuristics': []
     }
@@ -1880,7 +1931,7 @@ def run_evolution():
             'index': start_gen,
             'title': f'续训起点 (第{start_gen}代)',
             'status': '已加载',
-            'best_objective': evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else 'null',
+            'best_objective': _safe_obj(evolution.population['heuristics'][0]['objective']) if evolution.population['heuristics'] else None,
             'memory': {
                 'positive_features': evolution.population['memory'].get('positive_features', []),
                 'negative_features': evolution.population['memory'].get('negative_features', [])
@@ -1895,7 +1946,7 @@ def run_evolution():
                 'concept': h['concept'],
                 'feature': feat_display,
                 'algorithm': h['algorithm'],
-                'objective': h['objective'],
+                'objective': _safe_obj(h['objective']),
                 'tags': feat if isinstance(feat, list) else []
             })
         population_data.append(loaded_pop)

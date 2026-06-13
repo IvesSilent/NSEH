@@ -573,7 +573,7 @@ function updateScenarioBadge() {
     .then(d => {
       if (d.status === 'success') badge.textContent = d.problem_name || d.problem_id || '未知';
     })
-    .catch(() => {});
+    .catch(() => {/* poll retry */});
 }
 
 // ── Evolution Timer ────────────────────────────
@@ -608,7 +608,7 @@ function updateEvolutionTimer() {
         count.textContent = `${current_gen} / ${total_gens} 代`;
       }
     })
-    .catch(() => {});
+    .catch(() => {/* poll retry */});
 }
 
 // ── Confirmation Dialog ────────────────────────
@@ -745,18 +745,23 @@ function initEvolutionPage() {
 
 function fetchPopulationData() {
   fetch('/api/get_population_data')
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(d => {
       const prevLen = population_data?.length || 0;
-      population_data = d.population_data;
-      renderPopulationData(d.population_data, d.current_population_index);
+      if (d.population_data && d.population_data.length > 0) {
+        population_data = d.population_data;
+        renderPopulationData(d.population_data, d.current_population_index);
+      }
 
       // 自动滚动到最新一代
       if (d.population_data?.length > prevLen) {
         scrollToLatestGeneration();
       }
     })
-    .catch(() => {});
+    .catch(err => console.warn('[NSEH] fetchPopulationData error:', err));
 }
 
 function scrollToLatestGeneration() {
@@ -813,7 +818,7 @@ function checkEvolutionStatus() {
         updateEvolutionStatusUI('idle');
       }
     })
-    .catch(() => {});
+    .catch(() => {/* poll retry */});
 }
 
 // ── Render Population ──────────────────────────
