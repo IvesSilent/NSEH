@@ -292,19 +292,21 @@ function stopAllPolling() {
 // ── Validation ─────────────────────────────────
 function validateSettings() {
   const fields = {
-    population_capacity: parseInt,
-    num_generations: parseInt,
-    num_mutation: parseInt,
-    num_hybridization: parseInt,
-    num_reflection: parseInt
+    population_capacity: 7,
+    num_generations: 5,
+    num_mutation: 3,
+    num_hybridization: 3,
+    num_reflection: 3
   };
-  for (const [id, fn] of Object.entries(fields)) {
-    const val = fn(document.getElementById(id)?.value);
+  let allOk = true;
+  for (const [id, def] of Object.entries(fields)) {
+    const val = parseInt(document.getElementById(id)?.value);
     if (isNaN(val) || val < 0) {
-      showToast('进化参数需为非负整数，请检查设置', 'error');
-      return false;
+      document.getElementById(id).value = def;
+      allOk = false;
     }
   }
+  if (!allOk) showToast('已自动填充无效的进化参数', 'warning');
   return true;
 }
 
@@ -480,6 +482,26 @@ function initSettingPage() {
     }
   });
 
+  // 训练数据/标准解的浏览按钮
+  document.querySelectorAll('#setting-page .file-input').forEach((fi, idx) => {
+    const btn = fi.querySelector('.browse-btn');
+    const input = fi.querySelector('input[type="text"]');
+    const filePicker = document.createElement('input');
+    filePicker.type = 'file';
+    filePicker.style.display = 'none';
+    fi.appendChild(filePicker);
+    const targetId = input?.id || '';
+    filePicker.addEventListener('change', e => {
+      const files = e.target.files;
+      if (files?.length > 0) {
+        input.value = files[0].name;
+        showToast('已选择文件', 'success');
+      }
+      e.target.value = '';
+    });
+    btn?.addEventListener('click', () => filePicker.click());
+  });
+
   document.getElementById('browse_problem_path')?.addEventListener('click', () => {
     document.getElementById('problem_path_file')?.click();
   });
@@ -573,6 +595,17 @@ function updateEvolutionTimer() {
         timerEl.textContent = `⏱ ${current_gen}/${total_gens} 代 耗时 ${timeStr}`;
       } else {
         timerEl.textContent = `⏱ 初始化中... 耗时 ${timeStr}`;
+      }
+
+      // 更新进度条
+      const fill = document.getElementById('evolution-progress-fill');
+      const count = document.getElementById('progress-count');
+      if (fill && total_gens > 0) {
+        const pct = current_gen > 0 ? Math.min((current_gen / total_gens) * 100, 100) : 0;
+        fill.style.width = pct + '%';
+      }
+      if (count) {
+        count.textContent = `${current_gen} / ${total_gens} 代`;
       }
     })
     .catch(() => {});
@@ -680,13 +713,13 @@ function initEvolutionPage() {
   // 进化页面初始化时不再抢请求，等切换到该 tab 再由 startPolling 触发
   updateScenarioBadge();
 
-  updateScenarioBadge();
-
   document.getElementById('pause-evolution-btn')?.addEventListener('click', () => {
+    updateEvolutionStatusUI('paused');
     fetch('/api/pause_evolution', { method: 'POST' });
     showToast('进化已暂停', 'warning');
   });
   document.getElementById('resume-evolution-btn')?.addEventListener('click', () => {
+    updateEvolutionStatusUI('running');
     fetch('/api/resume_evolution', { method: 'POST' });
     showToast('进化继续中...', 'success');
   });
@@ -735,15 +768,49 @@ function scrollToLatestGeneration() {
   container.scrollTop = container.scrollHeight;
 }
 
+function updateEvolutionStatusUI(status) {
+  const dot = document.getElementById('evo-status-dot');
+  const text = document.getElementById('evo-status-text');
+  if (!dot || !text) return;
+  dot.className = 'evo-dot';
+  switch (status) {
+    case 'running':
+      dot.classList.add('running');
+      text.textContent = '进化运行中...';
+      text.style.color = 'var(--success)';
+      break;
+    case 'completed':
+      dot.classList.add('completed');
+      text.textContent = '进化已完成 ✓';
+      text.style.color = 'var(--success)';
+      break;
+    case 'paused':
+      dot.classList.add('paused');
+      text.textContent = '已暂停';
+      text.style.color = 'var(--accent)';
+      break;
+    case 'idle':
+    default:
+      text.textContent = '等待启动';
+      text.style.color = 'var(--text-muted)';
+      break;
+  }
+}
+
 function checkEvolutionStatus() {
   fetch('/api/check_evolution_status')
     .then(r => r.json())
     .then(d => {
       if (d.status === 'completed') {
+        updateEvolutionStatusUI('completed');
         showToast('进化完成 ✓ 切换到结果页查看', 'success', 5000);
         document.getElementById('results-tab')?.click();
+      } else if (d.status === 'running') {
+        updateEvolutionStatusUI('running');
+      } else if (d.status === 'paused') {
+        updateEvolutionStatusUI('paused');
       } else if (d.status === 'idle') {
-        // noop
+        updateEvolutionStatusUI('idle');
       }
     })
     .catch(() => {});
@@ -1180,27 +1247,6 @@ function generateScenario() {
       el.querySelector('.step-done').style.display = 'none';
       el.querySelector('.step-error').style.display = 'none';
     }
-    list.style.display = 'block';
-    list.innerHTML = pops.map(p => {
-      const problemTag = p.problem ? `<span class="tag" style="margin-right:8px;">${escapeHtml(p.problem)}</span>` : '';
-      return `<div class="pop-file-card" onclick="selectPopulationFile('${escapeHtml(p.path)}')">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            ${problemTag}
-            <strong style="color:var(--accent);">第 ${p.generation} 代</strong>
-            <span style="color:var(--text-secondary);margin-left:8px;">${escapeHtml(p.date)}</span>
-          </div>
-          <div style="color:var(--text-secondary);font-size:0.82rem;">
-            ${escapeHtml(p.mtime)} · ${p.size_kb}KB
-          </div>
-        </div>
-        <div style="font-size:0.82rem;color:var(--text-secondary);margin-top:4px;">${escapeHtml(p.filename)}</div>
-      </div>`;
-    }).join('');
-  })
-  .catch(err => {
-    loading.style.display = 'none';
-    showToast('加载种群列表失败: ' + err.message, 'error');
   });
 
   setStepActive('step-config');
@@ -1372,45 +1418,6 @@ function listSavedPopulations() {
     loading.style.display = 'none';
     showToast('加载种群列表失败: ' + err.message, 'error');
   });
-}
-
-function selectPopulationFile(path) {
-  showToast('正在加载种群...', 'info');
-  fetch('/api/load_population', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: path })
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (d.status === 'success') {
-      const summary = document.getElementById('load-population-summary');
-      summary.style.display = 'block';
-      summary.innerHTML = `
-        <strong style="color:var(--success);">${escapeHtml(d.message)}</strong><br><br>
-        <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">起始代数</td>
-              <td style="padding:4px 8px;">第 ${d.generation} 代</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">启发式数量</td>
-              <td style="padding:4px 8px;">${d.heuristic_count} 个</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">积极特征</td>
-              <td style="padding:4px 8px;">${d.memory_summary.positive_count} 条</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">消极特征</td>
-              <td style="padding:4px 8px;">${d.memory_summary.negative_count} 条</td></tr>
-        </table>
-        <div style="margin-top:12px;text-align:center;">
-          <button class="control-btn resume-btn" onclick="closeLoadPopulationModal();startEvolution();">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
-            用此种群开始进化</button>
-          <button class="control-btn" onclick="closeLoadPopulationModal()">取消</button>
-        </div>
-      `;
-      showToast('✓ ' + d.message, 'success');
-    } else {
-      throw new Error(d.message);
-    }
-  })
-  .catch(err => showToast('[ERROR] ' + err.message, 'error', 5000));
 }
 
 function selectPopulationFile(path) {

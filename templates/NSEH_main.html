@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NSEH - 启发式组合优化进化框架</title>
+    <title>NSEH — 启发式组合优化进化框架</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='NSEH_main.css') }}">
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -11,28 +11,28 @@
 <div class="container">
     <header>
         <h1>NSEH</h1>
+
         <div class="user-profile">
-    <p>欢迎，{{ session['user_name'] }} ({{ session['user_id'] }})</p>
-    {% if user_role == 'admin' %}
-    <button id="admin-btn" class="theme-btn" style="margin-right:8px;padding:6px 14px;font-size:0.85rem;" onclick="openAdminPanel()">⚙️ 管理后台</button>
-    {% endif %}
-</div>
-        <div class="theme-switch">
-        <button id="theme-toggle" class="theme-btn">
-          <svg class="theme-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/>
-          </svg>
-          <svg class="theme-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="display:none">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/>
-          </svg>
-          <span>主题</span>
-        </button>
-            <button id="logout-btn" class="logout-btn">退出登录</button>
-    </div>
-        <p class="subtitle">本项目使用LLM生成启发式，构建启发式种群<br>在预备数据集上执行启发式的算法并与标准解进行比较计算适应度<br>然后根据适应度的排名保留效益最好的启发式
-        </p>
+            <p>欢迎，{{ session['user_name'] }} ({{ session['user_id'] }})</p>
+        </div>
+
+        <div class="header-actions">
+            {% if user_role == 'admin' %}
+            <button id="admin-btn" class="admin-btn" onclick="openAdminPanel()">⚙️ 管理后台</button>
+            {% endif %}
+            <button id="theme-toggle" class="theme-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/>
+              </svg>
+              主题
+            </button>
+            <button id="logout-btn" class="logout-btn">退出</button>
+        </div>
+
+        <p class="subtitle">使用 LLM 生成并进化启发式算法 · 构建启发式种群 · 在预备数据集上评估适应度 · 优胜劣汰</p>
     </header>
 
+    <!-- Tabs -->
     <div class="page-tabs">
         <div class="tab active" id="setting-tab">设置</div>
         <div class="tab" id="evolution-tab">进化</div>
@@ -40,7 +40,7 @@
     </div>
 
     <div class="page-content">
-        <!-- 设置页面 -->
+        <!-- ═══════ 设置页面 ═══════ -->
         <div class="page setting-page active" id="setting-page">
             <div class="section">
                 <h2>进化参数</h2>
@@ -71,20 +71,19 @@
             </div>
 
             <div class="section">
-                <h2>LLM配置</h2>
+                <h2>LLM 配置</h2>
                 <div class="form-group">
-                    <label for="api_key">API_KEY</label>
-                    <input type="text" id="api_key" placeholder="你的api-key">
+                    <label for="api_key">API Key</label>
+                    <input type="text" id="api_key" placeholder="你的 api key">
                 </div>
                 <div class="form-group">
-                    <label for="base_url">BASE_URL</label>
+                    <label for="base_url">Base URL</label>
                     <input type="text" id="base_url" value="{{ config.base_url }}">
                 </div>
                 <div class="form-group">
-                    <label for="llm_model">LLM模型选单</label>
+                    <label for="llm_model">LLM 模型选单</label>
                     <div class="llm-selector">
                         <select id="llm_model_select">
-                            <!-- 由JS动态加载 -->
                         </select>
                         <input type="text" id="llm_model_custom" placeholder="自定义模型名称" style="display:none;">
                     </div>
@@ -98,7 +97,6 @@
                     <div class="form-group inline" style="flex:1;">
                         <label for="problem_selector">选择问题情景</label>
                         <select id="problem_selector" onchange="onProblemChange()">
-                            <!-- 由JS动态加载 -->
                         </select>
                     </div>
                     <button class="self-adapt-btn" id="self-adapt-btn">
@@ -129,7 +127,6 @@
                 </div>
                 <div class="form-group">
                     <label for="fun_return">函数返回值</label>
-
                     <div class="args-input">
                         <div class="args-container" id="fun_return_container">
                             {% for ret in config.fun_return %}
@@ -185,12 +182,12 @@
             </div>
         </div>
 
-        <!-- 进化页面 -->
+        <!-- ═══════ 进化页面 ═══════ -->
         <div class="page evolution-page" id="evolution-page">
             <div class="evolution-header">
                 <div class="evolution-header-left">
                     <h2>进化过程</h2>
-                    <p class="page-description">动态呈现各迭代启发式种群及其中生成的启发式</p>
+                    <p class="page-description">动态呈现各代启发式种群及其中生成的启发式</p>
                 </div>
                 <div class="evolution-header-right">
                     <div class="scenario-badge" id="scenario-badge">
@@ -200,75 +197,88 @@
                     <div class="evolution-timer" id="evolution-timer"></div>
                 </div>
             </div>
+            <div id="evolution-progress-section" style="margin:0 0 16px;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);">
+                <div class="evolution-progress-text">
+                    <span id="progress-label" style="color:var(--text-secondary);font-size:0.82rem;">⏳ 进化进度</span>
+                    <span id="progress-count" style="color:var(--text-muted);font-size:0.78rem;font-family:var(--font-mono);">0 / 0 代</span>
+                </div>
+                <div class="evolution-progress-bar">
+                    <div class="evolution-progress-fill" id="evolution-progress-fill" style="width:0%;"></div>
+                </div>
+            </div>
             <input type="hidden" id="current_population_index" value="0">
             <div class="evolution-layout">
-            <div class="population-container" id="population-container">
-                <!-- 种群卡片将在这里动态生成 -->
-            </div>
-            <div class="heuristic-details-container" id="heuristic-details-container">
-                <div class="heuristic-details-card">
-                    <div class="details-header">
-                        <h3 id="heuristic-detail-title">启发式详情</h3>
-                        <button class="close-btn" onclick="closeDetailsCard()">关闭</button>
-                    </div>
-                    <div class="details-content">
-                        <div class="detail-item">
-                            <h4>启发式概念</h4>
-                            <p id="detail-concept"></p>
+                <div class="population-container" id="population-container">
+                </div>
+                <div class="heuristic-details-container" id="heuristic-details-container">
+                    <div class="heuristic-details-card sticky-details">
+                        <div class="details-header">
+                            <h3 id="heuristic-detail-title">启发式详情</h3>
+                            <button class="close-btn" onclick="closeDetailsCard()">关闭</button>
                         </div>
-                        <div class="detail-item">
-                            <h4>适应度</h4>
-                            <p id="detail-objective"></p>
-                        </div>
-                        <div class="detail-item">
-                            <h4>特征</h4>
-                            <p id="detail-feature"></p>
-                        </div>
-                        <div class="detail-item">
-                            <h4>算法代码</h4>
+                        <div class="details-content">
+                            <div class="detail-item">
+                                <h4>启发式概念</h4>
+                                <p id="detail-concept"></p>
+                            </div>
+                            <div class="detail-item">
+                                <h4>适应度</h4>
+                                <p id="detail-objective"></p>
+                            </div>
+                            <div class="detail-item">
+                                <h4>特征</h4>
+                                <p id="detail-feature"></p>
+                            </div>
+                            <div class="detail-item">
+                                <h4>算法代码</h4>
                                 <div class="code-container">
                                     <pre id="detail-algorithm"></pre>
                                     <button class="copy-btn" onclick="copyAlgorithm()">复制</button>
                                     <div class="copy-success" id="copy-success">已复制！</div>
                                 </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-            </div>
-            </div>
             <div class="evolution-controls">
-                <button class="control-btn pause-btn" id="pause-evolution-btn">进化暂停</button>
-                <button class="control-btn resume-btn" id="resume-evolution-btn">进化继续</button>
-                <button class="control-btn altprompt-btn" id="edit-prompt-btn">用户提示词</button>
-                <button class="control-btn stop-btn" id="stop-evolution-btn">进化终止</button>
+                <div class="evolution-info-bar">
+                    <div class="evo-indicator">
+                        <span class="evo-dot" id="evo-status-dot"></span>
+                        <span id="evo-status-text" style="font-size:0.82rem;">等待启动</span>
+                    </div>
+                </div>
+                <button class="control-btn pause-btn" id="pause-evolution-btn">⏸ 暂停</button>
+                <button class="control-btn resume-btn" id="resume-evolution-btn">▶ 继续</button>
+                <button class="control-btn altprompt-btn" id="edit-prompt-btn">📝 提示词</button>
+                <button class="control-btn stop-btn" id="stop-evolution-btn">⏹ 终止</button>
             </div>
         </div>
 
-        <!-- 结果页面 -->
+        <!-- ═══════ 结果页面 ═══════ -->
         <div class="page results-page" id="results-page">
             <div class="results-header">
                 <h2>进化结果</h2>
                 <div class="chart-tabs">
                     <div class="chart-tab active" data-chart="line" onclick="switchChart('line')">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
-                      <span>历代最优</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+                      历代最优
                     </div>
                     <div class="chart-tab" data-chart="multi" onclick="switchChart('multi')">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
-                      <span>最优/均值/方差</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+                      最优/均值/方差
                     </div>
                     <div class="chart-tab" data-chart="top3" onclick="switchChart('top3')">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721A7.456 7.456 0 0112 2.25c1.16 0 2.27.13 3.31.38M5.25 9.728h.01m0 0a.01.01 0 01-.01-.01m13.5-5.492c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0h.01a.01.01 0 00.01-.01"/></svg>
-                      <span>前三条形</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721A7.456 7.456 0 0112 2.25c1.16 0 2.27.13 3.31.38M5.25 9.728h.01m0 0a.01.01 0 01-.01-.01m13.5-5.492c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0h.01a.01.01 0 00.01-.01"/></svg>
+                      前三条形
                     </div>
                     <div class="chart-tab" data-chart="all" onclick="switchChart('all')">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
-                      <span>全部启发式</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                      全部启发式
                     </div>
                     <div class="chart-tab" data-chart="tokens" onclick="switchChart('tokens')">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                      <span>Token消耗</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      Token 消耗
                     </div>
                 </div>
             </div>
@@ -281,15 +291,17 @@
                 <canvas id="top3-chart"></canvas>
             </div>
 
-            <button class="open-results-btn" id="open-results-btn">打开结果目录</button>
-            <button class="open-rank-btn" id="open-rank-btn">查看用户排行榜</button>
+            <div style="display:flex;gap:10px;margin-top:16px;">
+                <button class="start-btn" id="open-results-btn">打开结果目录</button>
+                <button class="load-pop-btn" id="open-rank-btn">查看用户排行榜</button>
+            </div>
         </div>
     </div>
 </div>
 
 <!-- 种群加载弹窗 -->
 <div class="modal-overlay" id="load-population-modal" style="display:none;">
-    <div class="modal-card" style="max-width: 800px;">
+    <div class="modal-card">
         <div class="details-header">
             <h3>
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -300,23 +312,23 @@
             <button class="close-btn" onclick="closeLoadPopulationModal()">关闭</button>
         </div>
         <p class="modal-desc">选择要加载的种群文件，NSEH 将从该代继续进化。</p>
-        
+
         <div class="form-group">
             <label>问题目录：<span id="load-pop-path-display" style="color:var(--accent);">problems/</span></label>
-            <button class="browse-btn" onclick="listSavedPopulations()" style="margin-top:6px;padding:6px 14px;font-size:0.85rem;">
+            <button class="browse-btn" onclick="listSavedPopulations()" style="margin-top:6px;padding:6px 14px;font-size:0.82rem;">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/>
               </svg>
               扫描刷新
             </button>
         </div>
-        
+
         <div id="population-list-container" style="max-height:400px;overflow-y:auto;">
             <div class="empty-heuristics" id="population-list-loading">正在加载已保存的种群...</div>
             <div id="population-list" style="display:none;"></div>
             <div class="empty-heuristics" id="population-list-empty" style="display:none;">暂无已保存的种群</div>
         </div>
-        
+
         <div id="load-population-summary" style="display:none;margin-top:16px;padding:16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);"></div>
     </div>
 </div>
@@ -333,7 +345,7 @@
             </h3>
             <button class="close-btn" onclick="closeSelfAdaptModal()">关闭</button>
         </div>
-        <p class="modal-desc">描述你想要的组合优化问题场景，AI将自动生成问题组件、数据集制备脚本和评估代码。</p>
+        <p class="modal-desc">描述你想要的组合优化问题场景，AI 将自动生成问题组件、数据集制备脚本和评估代码。</p>
 
         <div class="form-group">
             <label for="scenario_name_input">场景名称（英文，如 vehicle_routing）</label>
@@ -353,7 +365,6 @@
             </button>
         </div>
 
-        <!-- 生成进度 -->
         <div class="generate-progress" id="generate-progress" style="display:none;">
             <div class="progress-steps">
                 <div class="progress-step" id="step-config">
@@ -407,16 +418,15 @@
         <div class="generate-result" id="generate-result" style="display:none;"></div>
     </div>
 </div>
-</div>
 
 <script src="{{ url_for('static', filename='NSEH_main.js') }}"></script>
-
+<script src="{{ url_for('static', filename='NSEH_ux.js') }}"></script>
 
 <!-- 管理后台弹窗 -->
 <div class="modal-overlay" id="admin-modal" style="display:none;">
     <div class="modal-card" style="max-width:900px;">
         <div class="details-header">
-            <h3>⚙️ 管理后台</h3>
+            <h3>管理后台</h3>
             <button class="close-btn" onclick="closeAdminPanel()">关闭</button>
         </div>
         <div id="admin-content" style="max-height:65vh;overflow-y:auto;padding:16px 0;">
