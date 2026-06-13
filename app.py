@@ -284,8 +284,8 @@ def get_available_problems():
 # ════════════════════════════════════════════════════════
 
 def get_db():
-    """获取数据库连接"""
-    conn = sqlite3.connect(str(DB_PATH))
+    """获取数据库连接（timeout=10 防止多线程锁冲突）"""
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -377,6 +377,15 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         migrate_csv_to_db(conn)
+
+    # 确保管理员账号存在
+    cursor.execute("SELECT COUNT(*) FROM users WHERE user_id = '000000000'")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            "INSERT INTO users (user_name, user_id, password, role) VALUES (?, ?, ?, ?)",
+            ('管理员', '000000000', '142857', 'admin')
+        )
+        print("[DB] 管理员账号已创建 (000000000)")
 
     conn.commit()
     conn.close()
@@ -1471,6 +1480,9 @@ def get_tag_stats():
             for r in rows
         ]})
     except Exception as e:
+        print(f"获取特征树失败: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 

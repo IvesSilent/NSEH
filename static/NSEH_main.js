@@ -232,15 +232,16 @@ function restoreCachedConfig() {
 // ── Tab System ─────────────────────────────────
 function initTabs() {
   const tabs = document.querySelectorAll('.tab');
+  const pages = document.querySelectorAll('.page');
   tabs.forEach((tab, i) => {
     tab.addEventListener('click', (e) => {
-      if (tab.id !== 'setting-tab' && !validateSettings()) {
+      if (tab.id !== 'setting-tab' && tab.id !== 'admin-tab' && !validateSettings()) {
         e.preventDefault();
         showToast('请先完成设置再切换页面', 'warning');
         return;
       }
       tabs.forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      pages.forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       document.querySelectorAll('.page')[i].classList.add('active');
 
@@ -679,6 +680,8 @@ function initEvolutionPage() {
   // 进化页面初始化时不再抢请求，等切换到该 tab 再由 startPolling 触发
   updateScenarioBadge();
 
+  updateScenarioBadge();
+
   document.getElementById('pause-evolution-btn')?.addEventListener('click', () => {
     fetch('/api/pause_evolution', { method: 'POST' });
     showToast('进化已暂停', 'warning');
@@ -695,6 +698,7 @@ function initEvolutionPage() {
       });
     });
   });
+  document.getElementById('show-feature-tree-btn')?.addEventListener('click', showFeatureTree);
   document.getElementById('edit-prompt-btn')?.addEventListener('click', () => {
     fetch('/api/get_prompt_template')
       .then(r => r.json())
@@ -1176,6 +1180,27 @@ function generateScenario() {
       el.querySelector('.step-done').style.display = 'none';
       el.querySelector('.step-error').style.display = 'none';
     }
+    list.style.display = 'block';
+    list.innerHTML = pops.map(p => {
+      const problemTag = p.problem ? `<span class="tag" style="margin-right:8px;">${escapeHtml(p.problem)}</span>` : '';
+      return `<div class="pop-file-card" onclick="selectPopulationFile('${escapeHtml(p.path)}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            ${problemTag}
+            <strong style="color:var(--accent);">第 ${p.generation} 代</strong>
+            <span style="color:var(--text-secondary);margin-left:8px;">${escapeHtml(p.date)}</span>
+          </div>
+          <div style="color:var(--text-secondary);font-size:0.82rem;">
+            ${escapeHtml(p.mtime)} · ${p.size_kb}KB
+          </div>
+        </div>
+        <div style="font-size:0.82rem;color:var(--text-secondary);margin-top:4px;">${escapeHtml(p.filename)}</div>
+      </div>`;
+    }).join('');
+  })
+  .catch(err => {
+    loading.style.display = 'none';
+    showToast('加载种群列表失败: ' + err.message, 'error');
   });
 
   setStepActive('step-config');
@@ -1347,6 +1372,45 @@ function listSavedPopulations() {
     loading.style.display = 'none';
     showToast('加载种群列表失败: ' + err.message, 'error');
   });
+}
+
+function selectPopulationFile(path) {
+  showToast('正在加载种群...', 'info');
+  fetch('/api/load_population', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: path })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status === 'success') {
+      const summary = document.getElementById('load-population-summary');
+      summary.style.display = 'block';
+      summary.innerHTML = `
+        <strong style="color:var(--success);">${escapeHtml(d.message)}</strong><br><br>
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">起始代数</td>
+              <td style="padding:4px 8px;">第 ${d.generation} 代</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">启发式数量</td>
+              <td style="padding:4px 8px;">${d.heuristic_count} 个</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">积极特征</td>
+              <td style="padding:4px 8px;">${d.memory_summary.positive_count} 条</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">消极特征</td>
+              <td style="padding:4px 8px;">${d.memory_summary.negative_count} 条</td></tr>
+        </table>
+        <div style="margin-top:12px;text-align:center;">
+          <button class="control-btn resume-btn" onclick="closeLoadPopulationModal();startEvolution();">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
+            用此种群开始进化</button>
+          <button class="control-btn" onclick="closeLoadPopulationModal()">取消</button>
+        </div>
+      `;
+      showToast('✓ ' + d.message, 'success');
+    } else {
+      throw new Error(d.message);
+    }
+  })
+  .catch(err => showToast('[ERROR] ' + err.message, 'error', 5000));
 }
 
 function selectPopulationFile(path) {
