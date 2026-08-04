@@ -13,8 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="readme.md">🌐 语言切换</a> ·
-  <a href="readme_EN.md">🇬🇧 English</a> ·
+  <a href="readme.md">🇬🇧 English</a> ·
   <a href="publication/CHANGELOG.md">✨ 更新日志</a>
 </p>
 
@@ -194,9 +193,8 @@ CLI 参数在 `start_evo.py` 中直接配置：
 ├── publication/                   # 发布板块
 │   └── CHANGELOG.md               # 更新日志（Release Notes）
 ├── app.py                         # Web 应用入口
-├── readme.md                      # 语言切换入口
+├── readme.md                      # English 文档（GitHub 默认展示）
 ├── readme_CN.md                   # 中文文档
-├── readme_EN.md                   # English Docs
 ├── requirements.txt               # 依赖
 ├── .config_cache.json             # 配置缓存（自动生成）
 ├── nseh.db                        # SQLite 数据库（自动生成）
