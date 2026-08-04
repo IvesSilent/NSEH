@@ -8,6 +8,7 @@ const SCROLL_INTERVAL = 15000;
 let evolutionTimer = null;
 let pollingTimers = {};
 let _featureOpenState = {};
+let _lastDetailIndex = null;
 
 // ── Toast 通知（堆叠版）───────────────────
 const toasts = new Set();
@@ -1055,6 +1056,7 @@ function showHeuristicDetails(index) {
   const h = pop.heuristics?.find(x => x.index === index);
   if (!h) { showToast(T('t.detailNotFound'), 'error'); return; }
 
+  _lastDetailIndex = index;
   document.getElementById('heuristic-detail-title').textContent = T('t.heuristicN', index);
   document.getElementById('detail-concept').textContent = h.concept || '—';
   document.getElementById('detail-objective').textContent =
@@ -1071,6 +1073,7 @@ function showHeuristicDetails(index) {
 }
 
 function closeDetailsCard() {
+  _lastDetailIndex = null;
   const el = document.getElementById('heuristic-details-container');
   if (el) el.style.display = 'none';
   document.body.classList.remove('details-visible');
@@ -1594,5 +1597,10 @@ document.addEventListener('i18n:changed', () => {
       labels[3].textContent = T('t.optimization');
       labels[4].textContent = T('t.analyze');
     }
+  }
+  // 启发式详情面板若已打开，重新设置标题语言
+  const detailsEl = document.getElementById('heuristic-details-container');
+  if (detailsEl && detailsEl.style.display !== 'none' && _lastDetailIndex != null) {
+    document.getElementById('heuristic-detail-title').textContent = T('t.heuristicN', _lastDetailIndex);
   }
 });
