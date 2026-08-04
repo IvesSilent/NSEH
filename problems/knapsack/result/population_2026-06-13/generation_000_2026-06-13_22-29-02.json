@@ -1,0 +1,83 @@
+{
+  "heuristics": [
+    {
+      "concept": "基于概率扰动与局部搜索的启发式算法：首先计算标准价值密度，然后引入随机扰动项和局部搜索机制。在决策时，通过比较加入扰动后的价值密度与基于剩余容量动态调整的阈值来决定是否拿取物品。此外，对拿取决策进行后验检查，如果发现当前物品的加入导致局部价值密度下降，则可能撤回决策。该算法混合了随机探索与确定性优化，避免陷入贪心策略的局部最优。",
+      "feature": [
+        "概率扰动",
+        "动态阈值",
+        "局部搜索",
+        "后验修正"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if weights[current_index] == 0:\n        return 1\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    cur_weight = weights[current_index]\n    cur_value = values[current_index]\n    cur_density = cur_value / cur_weight if cur_weight > 0 else 0.0\n\n    # 计算剩余物品平均密度（仅考虑能装下的）\n    future_densities = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            future_densities.append(values[i] / weights[i])\n    avg_future_density = np.mean(future_densities) if future_densities else cur_density\n\n    # 动态阈值：剩余容量越紧张，阈值越高\n    capacity_ratio = remaining_capacity / (cur_weight + 1e-6)\n    dynamic_threshold = 1.0 + 0.15 * (1.0 / (capacity_ratio + 1e-6))\n\n    # 概率扰动：基于剩余容量随机调整密度\n    noise = np.random.uniform(-0.1, 0.1) * (remaining_capacity / (sum(weights[current_index:]) + 1e-6))\n    perturbed_density = cur_density * (1 + noise)\n\n    # 初步决策\n    decision = 1 if perturbed_density >= avg_future_density * dynamic_threshold else 0\n\n    # 局部搜索后验修正：如果当前物品被选中，检查其是否导致后续局部密度下降\n    if decision == 1:\n        # 模拟拿取后剩余容量\n        remaining_after = remaining_capacity - cur_weight\n        # 计算后续物品中重量小于剩余容量一半的局部平均密度\n        local_densities = []\n        for i in range(current_index + 1, min(current_index + 5, num_items)):\n            if weights[i] > 0 and weights[i] <= remaining_after:\n                local_densities.append(values[i] / weights[i])\n        local_avg_density = np.mean(local_densities) if local_densities else 0\n        # 如果当前密度显著低于局部平均，撤回决策\n        if local_avg_density > 0 and cur_density < 0.8 * local_avg_density:\n            decision = 0\n\n    return decision",
+      "objective": 2110.40625
+    },
+    {
+      "concept": "思想概念：基于多维特征空间聚类的竞争性启发式算法。该算法不直接比较价值密度或计算协同损失，而是将每个物品映射到一个由重量、价值、剩余容量弹性、后续物品密度分布方差等构成的多维特征空间。引入K近邻思想，计算当前物品与未来物品在特征空间中的“竞争距离”，距离越近代表未来物品与当前物品在属性上越相似、越可能构成直接竞争。决策时，综合评估当前物品的孤立度（其附近未来物品的密度）和独占价值（其超出附近未来物品平均价值的程度），若当前物品在特征空间中具有显著的局部独占优势，则选取，否则为未来更优的同类物品留出空间。该方法避免了预设阈值和权重，通过特征空间的局部拓扑结构自适应决策。",
+      "feature": [
+        "多维特征映射",
+        "K近邻竞争分析",
+        "局部独占优势评估",
+        "自适应阈值"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if weights[current_index] == 0:\n        return 1\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    cur_weight = weights[current_index]\n    cur_value = values[current_index]\n    cur_density = cur_value / cur_weight if cur_weight > 0 else 0.0\n    cur_capacity_ratio = remaining_capacity / (cur_weight + 1e-6)\n\n    # 构建未来物品的特征列表（仅考虑能装下的）\n    future_features = []\n    future_indices = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            w = weights[i]\n            v = values[i]\n            d = v / w if w > 0 else 0.0\n            # 特征：重量归一化、价值密度、与当前重量的相对差、剩余容量适应性\n            rel_weight = w / (cur_weight + 1e-6)\n            features = np.array([rel_weight, d, min(cur_capacity_ratio, w / (remaining_capacity + 1e-6))])\n            future_features.append(features)\n            future_indices.append(i)\n\n    if len(future_features) == 0:\n        # 没有后续物品，直接拿取\n        return 1\n\n    future_features = np.array(future_features)\n\n    # 当前物品的特征向量\n    cur_features = np.array([1.0, cur_density, 1.0])  # 相对自身为1\n\n    # 计算当前物品与所有未来物品的欧氏距离\n    distances = np.sqrt(np.sum((future_features - cur_features) ** 2, axis=1))\n\n    # 找到最近邻的K个物品（K取未来物品数的平方根向上取整，至少为1）\n    K = max(1, int(np.sqrt(len(future_features))))\n    nearest_indices = np.argsort(distances)[:K]\n    nearest_distances = distances[nearest_indices]\n    nearest_future_densities = np.array([values[future_indices[i]] / weights[future_indices[i]] for i in nearest_indices])\n\n    # 计算局部独占价值增益：当前物品密度超出K近邻平均密度的比例\n    avg_neighbor_density = np.mean(nearest_future_densities) if len(nearest_future_densities) > 0 else 0.0\n    if avg_neighbor_density > 0:\n        advantage_ratio = cur_density / avg_neighbor_density\n    else:\n        advantage_ratio = 2.0  # 若邻居密度为0，当前物品优势极大\n\n    # 计算竞争压力：K近邻的平均距离的倒数（距离越近，竞争越激烈）\n    avg_distance = np.mean(nearest_distances) if len(nearest_distances) > 0 else 1.0\n    competition_pressure = 1.0 / (avg_distance + 1e-6)  # 归一化到0附近，值越大竞争越激烈\n\n    # 决策：优势比必须超过竞争压力调节后的阈值\n    # 当竞争压力大时（近邻密集），需要更大优势才能拿取；竞争压力小时（孤立），稍具优势即可拿取\n    effective_threshold = 1.0 + 0.3 * competition_pressure  # 竞争压力越大，阈值越高\n    if advantage_ratio >= effective_threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 2433.359375
+    },
+    {
+      "concept": "基于信息熵与动态效用折现的启发式算法：该算法将物品选择视为信息决策过程，通过计算当前物品的“信息熵修正效用”来评估其选取价值。首先计算当前物品的静态效用（价值密度），然后引入基于剩余容量和未来物品价值分布的信息熵，量化选取当前物品后对未来选项的不确定性影响。同时，采用动态折现系数，该系数随剩余容量减少而指数衰减，模拟“机会成本时间价值”。决策时，将当前物品的效用与折现后的未来期望效用进行比较，并引入一个基于已选物品平均密度的自适应基准线，只有当当前物品的熵修正效用显著超越基准线时才选取。该方法从信息论角度避免了纯贪心或固定阈值的局限。",
+      "feature": [
+        "信息熵评估",
+        "动态折现",
+        "效用比较",
+        "自适应基准线"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if weights[current_index] == 0:\n        return 1\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    cur_weight = weights[current_index]\n    cur_value = values[current_index]\n    cur_density = cur_value / cur_weight if cur_weight > 0 else 0.0\n\n    # 计算剩余物品（能装下的）的价值分布，用于信息熵计算\n    future_values_list = []\n    future_weights_list = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            future_values_list.append(values[i])\n            future_weights_list.append(weights[i])\n    \n    if len(future_values_list) == 0:\n        # 没有后续物品，直接根据当前密度是否为正决定\n        return 1 if cur_density > 0 else 0\n\n    # 计算未来物品的价值概率分布（归一化）\n    future_values_arr = np.array(future_values_list)\n    prob_distribution = future_values_arr / (np.sum(future_values_arr) + 1e-8)\n\n    # 计算信息熵：熵越高，未来不确定性越大，选取当前物品可能损失的机会越大\n    entropy = -np.sum(prob_distribution * np.log(prob_distribution + 1e-8))\n\n    # 计算未来期望效用（加权平均价值密度）\n    future_densities = np.array([v/w for v,w in zip(future_values_list, future_weights_list)])\n    expected_future_utility = np.mean(future_densities)  # 简单平均作为基准\n\n    # 动态折现系数：基于剩余容量与当前重量的比值，容量越紧折现越大（折现后未来价值变小）\n    capacity_ratio = remaining_capacity / (cur_weight + 1e-6)\n    discount_factor = np.exp(-0.2 / (capacity_ratio + 1e-6))  # 0.2为衰减系数\n\n    # 自适应基准线：基于已选物品的平均密度（这里用当前密度与未来期望的加权）\n    # 若无历史信息，用当前密度和未来期望的均值\n    baseline_density = 0.5 * cur_density + 0.5 * expected_future_utility\n\n    # 信息熵修正：将熵作为惩罚项，熵越大，当前物品需要更高的密度才能被选\n    entropy_penalty = 1.0 + 0.1 * entropy  # 熵越大，惩罚系数越大\n\n    # 当前物品的修正效用：密度除以熵惩罚，代表考虑了信息不确定性的净效用\n    adjusted_utility = cur_density / entropy_penalty\n\n    # 未来折现效用：未来期望效用经过折现，再乘以一个容量弹性因子\n    future_utility = expected_future_utility * discount_factor\n\n    # 决策：当前修正效用必须超过未来折现效用与基准线的较大者\n    threshold = max(baseline_density, future_utility)\n    if adjusted_utility > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 2785.90625
+    },
+    {
+      "concept": "基于物品关联性和动态稀缺度评估的启发式算法：首先计算每个物品的“稀缺价值比”（价值/重量），并引入一个反映当前容量紧张程度的“稀缺度因子”。然后，对于每个物品，评估如果将当前物品放入背包，则因占用容量而可能被迫放弃的后续物品中，那些与当前物品在价值上具有“正相关性”（即同时取用能产生协同增益）的物品的总潜在价值损失。通过比较当前物品的单独收益与这种协同损失，决定是否选取。此方法超越了传统密度排序，考虑了物品间的潜在互补关系。",
+      "feature": [
+        "稀有度评估",
+        "协同损失估计",
+        "相关性分析"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if weights[current_index] == 0:\n        return 1\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    # 计算当前物品的价值密度\n    current_density = values[current_index] / weights[current_index]\n\n    # 计算剩余物品的平均价值密度（仅考虑能装下的）\n    future_densities = []\n    future_weights = []\n    future_values = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            future_densities.append(values[i] / weights[i])\n            future_weights.append(weights[i])\n            future_values.append(values[i])\n    avg_future_density = np.mean(future_densities) if future_densities else 0.0\n\n    # 计算稀缺度因子：剩余容量相对于当前物品重量的比率\n    scarcity_factor = remaining_capacity / (weights[current_index] + 1e-6)\n\n    # 计算协同损失：假设当前物品被选中后，剩余容量减少，计算后续物品中与当前物品价值密度相近的物品的损失\n    # 定义“相关物品”为价值密度在当前密度0.8~1.2倍范围内的物品\n    if avg_future_density > 0:\n        related_mask = np.abs(np.array(future_densities) / avg_future_density - 1.0) < 0.2\n        related_weights = np.array(future_weights)[related_mask]\n        related_values = np.array(future_values)[related_mask]\n        # 假设这些相关物品在损失容量后无法全部选取，取价值中位数作为损失估计\n        if len(related_values) > 0:\n            synergy_loss = np.median(related_values)\n        else:\n            synergy_loss = 0.0\n    else:\n        synergy_loss = 0.0\n\n    # 决策：如果当前物品的价值高于协同损失的1.5倍且密度不低于未来平均密度，则选取\n    threshold = max(1.0, avg_future_density * 1.2)\n    if current_density >= threshold and values[current_index] > 1.5 * synergy_loss:\n        return 1\n    else:\n        return 0",
+      "objective": 3353.4375
+    },
+    {
+      "concept": "基于前景理论与后悔规避的启发式算法：引入行为经济学中的前景理论，将每个物品的决策视为一个“收益-损失”权衡。首先计算每个物品相对于未来物品的“后悔值”——即如果当前不选而未来无法选到更好物品的潜在损失，以及如果当前选了而未来有更好机会的“失望值”。决策时，通过一个动态的参考点（参考点为当前剩余容量下未来可能获得的最大平均价值密度）来评估当前物品的“心理价值”。同时引入一个风险规避系数，该系数随剩余容量减小而增大，使得在容量紧张时更倾向于保守（不拿），而在容量充裕时更倾向于冒险（拿取）。该方法不同于传统密度排序或协同损失估计，而是从人类决策心理出发，模拟“后悔最小化”和“前景最大化”的平衡。",
+      "feature": [
+        "前景理论",
+        "后悔规避",
+        "动态参考点",
+        "风险自适应"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if weights[current_index] == 0:\n        return 1\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    cur_weight = weights[current_index]\n    cur_value = values[current_index]\n    cur_density = cur_value / cur_weight if cur_weight > 0 else 0.0\n\n    # 计算未来物品中可能获得的最大价值密度（作为参考点）\n    future_densities = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            future_densities.append(values[i] / weights[i])\n    max_future_density = max(future_densities) if future_densities else cur_density\n\n    # 计算后悔值：如果当前不选，且未来无法获得密度高于当前物品的替代品，则后悔\n    # 假设未来物品中密度超过当前密度的总价值作为“后悔潜力”\n    regret_potential = 0.0\n    count_higher = 0\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            if values[i] / (weights[i] + 1e-6) > cur_density:\n                regret_potential += values[i]\n                count_higher += 1\n    avg_regret = regret_potential / (count_higher + 1e-6)\n\n    # 计算失望值：如果当前选了，但未来发现更好的机会（密度更高且重量更小），则失望\n    disappointment_potential = 0.0\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity - cur_weight:\n            if (values[i] / (weights[i] + 1e-6)) > cur_density * 1.2 and weights[i] <= cur_weight * 0.8:\n                disappointment_potential += values[i]\n\n    # 动态风险规避系数：容量越紧张，越保守（更看重后悔而非失望）\n    capacity_ratio = remaining_capacity / (cur_weight + 1e-6)\n    risk_aversion = 1.0 + 0.2 * (1.0 / (capacity_ratio + 1e-6))  # 容量紧张时系数大\n\n    # 前景价值计算：正收益（当前价值）和负收益（后悔/失望）的加权\n    # 参考点设为 max_future_density * cur_weight（未来最佳替代品的等效价值）\n    reference_value = max_future_density * cur_weight\n    # 相对于参考点的收益或损失\n    gain = cur_value - reference_value\n    # 损失部分：由后悔和失望构成，但用风险规避调整\n    loss = risk_aversion * (avg_regret + disappointment_potential) / (count_higher + 1e-6 + 1)\n\n    # 决策：如果收益大于损失，则拿取；否则不拿\n    if gain > loss:\n        return 1\n    else:\n        return 0",
+      "objective": 3382.515625
+    },
+    {
+      "concept": "基于动态自适应阈值与多目标权衡的启发式算法：该算法通过构建一个综合评估函数来决策是否选取当前物品。评估函数融合了当前物品的价值密度、重量占比、剩余容量弹性以及后续物品的潜在价值密度分布。不同于固定阈值，算法根据当前容量紧张程度和已选物品的平均价值密度动态调整决策边界，并引入一个“机会成本”因子来衡量选取当前物品可能导致的未来价值损失。该方法从多维度权衡局部收益与全局潜力，避免陷入单一指标的局部最优。",
+      "feature": [
+        "动态阈值",
+        "多目标权衡",
+        "机会成本评估",
+        "自适应调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if weights[current_index] == 0:\n        return 1\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    # 当前物品属性\n    cur_weight = weights[current_index]\n    cur_value = values[current_index]\n    cur_density = cur_value / cur_weight if cur_weight > 0 else 0.0\n\n    # 计算剩余物品的密度分布（仅考虑能装下的物品）\n    future_densities = []\n    future_weights = []\n    future_values = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_capacity:\n            future_densities.append(values[i] / weights[i])\n            future_weights.append(weights[i])\n            future_values.append(values[i])\n\n    # 计算已选物品的平均密度（假设已选择物品存储于全局变量，此处模拟为历史平均密度）\n    # 若无法获取历史信息，可用当前物品密度作为参考\n    # 此处用当前物品密度+未来平均密度的加权作为基线\n    avg_future_density = np.mean(future_densities) if future_densities else cur_density\n    baseline_density = 0.5 * cur_density + 0.5 * avg_future_density\n\n    # 动态阈值：基于剩余容量与当前物品重量的比值调整\n    capacity_ratio = remaining_capacity / (cur_weight + 1e-6)\n    # 容量越紧张，阈值越高，更倾向于不拿\n    dynamic_threshold = 1.0 + 0.1 * (1.0 / (capacity_ratio + 1e-6))\n\n    # 机会成本：估计选取当前物品后，未来可能损失的潜在价值\n    # 统计剩余物品中密度高于基线且重量小于剩余容量一半的物品，其总价值作为机会成本\n    remaining_after = remaining_capacity - cur_weight\n    opportunity_cost = 0.0\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0 and weights[i] <= remaining_after:\n            if values[i] / (weights[i] + 1e-6) > baseline_density and weights[i] <= remaining_after * 0.5:\n                opportunity_cost += values[i]\n\n    # 综合决策：当前物品的价值密度需超过动态阈值*基线密度，且当前价值大于机会成本的1.2倍\n    if cur_density >= dynamic_threshold * baseline_density and cur_value > 1.2 * opportunity_cost:\n        return 1\n    else:\n        return 0",
+      "objective": 3418.859375
+    },
+    {
+      "concept": "基于价值密度与前瞻性修正的启发式算法：首先计算每个物品的价值密度（价值/重量），然后依次遍历物品，如果当前物品可以放入背包，则考虑一个基于剩余容量和后续物品潜力的修正因子，最终决定是否选择该物品。修正因子通过评估当前物品加入后，对未来可用容量的影响以及可能损失的“预期最优”价值来调整判断，从而在贪心基础上增加一定的全局视野。",
+      "feature": [
+        "价值密度排序",
+        "前瞻性修正",
+        "增量贪心"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 如果当前物品重量为0，直接拿取\n    if weights[current_index] == 0:\n        return 1\n    # 如果装不下，直接返回0\n    if weights[current_index] > remaining_capacity:\n        return 0\n\n    # 计算当前物品的价值密度\n    current_density = values[current_index] / weights[current_index]\n\n    # 计算剩余物品的“潜在平均价值密度”（考虑那些能装下的物品）\n    future_densities = []\n    for i in range(current_index + 1, num_items):\n        if weights[i] > 0:\n            future_densities.append(values[i] / weights[i])\n    avg_future_density = np.mean(future_densities) if future_densities else 0.0\n\n    # 判断当前物品是否显著优于未来平均水平，并引入剩余容量因子\n    # 如果当前物品价值密度大于未来平均密度，或者剩余容量很小，才拿取\n    # 否则为未来保留空间\n    threshold = 1.0 + (remaining_capacity / (weights[current_index] + 1e-6)) * 0.05\n    if current_density >= avg_future_density * threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 3569.109375
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": []
+  }
+}

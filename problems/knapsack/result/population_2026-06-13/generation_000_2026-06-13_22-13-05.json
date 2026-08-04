@@ -1,0 +1,82 @@
+{
+  "heuristics": [
+    {
+      "concept": "该启发式采用“冲突-权衡”思想，模拟人在面对当前物品时的两难决策：如果拿，会占用容量可能错过后面更高价值物品；如果不拿，可能浪费当前高性价比机会。为此，引入“机会成本估计”：计算当前物品占用容量后，造成未来剩余容量能装载的价值损失。如果当前物品的价值高于其占位带来的机会损失，则拿，否则不拿。机会损失通过贪心填充剩余物品的预估价值上限来近似，形成一种前瞻性决策。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "前瞻性填充"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    # 当前物品的价值\n    current_value = values[current_index]\n    current_weight = weights[current_index]\n    \n    # 计算如果不拿当前物品，剩余容量（即当前remaining_capacity）能贪心装下后续物品的最大价值估计\n    # 贪心策略：按价值密度降序填充剩余物品\n    remaining_indices = list(range(current_index+1, num_items))\n    if remaining_indices:\n        # 取出后续物品的重量和价值\n        remaining_weights = weights[remaining_indices]\n        remaining_values = values[remaining_indices]\n        # 按价值密度降序排序\n        density = remaining_values / remaining_weights\n        sorted_order = np.argsort(-density)  # 降序排列\n        cap = remaining_capacity\n        value_without = 0.0\n        for idx in sorted_order:\n            w = remaining_weights[idx]\n            v = remaining_values[idx]\n            if w <= cap:\n                cap -= w\n                value_without += v\n            else:\n                # 可考虑部分贪心，但背包为0/1，这里只取完整物品，不取部分\n                pass\n    else:\n        value_without = 0.0\n    \n    # 如果拿了当前物品，剩余容量减少，再贪心填充后续物品\n    cap_with = remaining_capacity - current_weight\n    value_with = current_value\n    if remaining_indices:\n        # 重新对后续物品按密度排序，但注意容量已变\n        density = remaining_values / remaining_weights\n        sorted_order = np.argsort(-density)\n        for idx in sorted_order:\n            w = remaining_weights[idx]\n            v = remaining_values[idx]\n            if w <= cap_with:\n                cap_with -= w\n                value_with += v\n            else:\n                pass\n    \n    # 比较拿与不拿的预期总价值，选择价值更高的决策\n    if value_with > value_without:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 1.9375
+    },
+    {
+      "concept": "该启发式基于“多步前瞻与动态规划剪枝”思想，在每个决策点不依赖单步阈值或贪心填充，而是通过构建一个简化的“未来状态价值函数”来评估当前物品的长期影响。具体地，利用剩余容量和剩余物品的背包问题近似解（如采用动态规划但只考虑有限物品窗口或使用松弛线性规划的上界）作为“机会成本”估计，并结合当前物品的边际效用与未来最优子结构之间的差值，形成一种“决策梯度”。同时引入一个“置信度调节因子”，根据当前物品在全局价值分位中的位置动态调整决策倾向，从而在精确性与计算效率之间取得平衡。",
+      "feature": [
+        "多步前瞻",
+        "动态规划剪枝",
+        "价值函数估计",
+        "置信度调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    # 当前物品的信息\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    \n    # 计算剩余物品（从当前索引之后）的背包问题近似上界\n    # 使用线性规划松弛：按价值密度降序填充，允许部分取物品，作为价值上界估计\n    remaining_indices = list(range(current_index + 1, num_items))\n    if remaining_indices:\n        rem_weights = weights[remaining_indices]\n        rem_values = values[remaining_indices]\n        rem_densities = rem_values / rem_weights\n        sorted_idx = np.argsort(-rem_densities)\n        \n        # 计算不拿当前物品时的剩余容量价值上界\n        cap_no_take = remaining_capacity\n        upper_no_take = 0.0\n        for idx in sorted_idx:\n            w = rem_weights[idx]\n            v = rem_values[idx]\n            if w <= cap_no_take:\n                cap_no_take -= w\n                upper_no_take += v\n            else:\n                upper_no_take += (cap_no_take / w) * v  # 部分取\n                break\n        \n        # 计算拿当前物品后的剩余容量价值上界\n        cap_take = remaining_capacity - current_weight\n        upper_take = current_value\n        for idx in sorted_idx:\n            w = rem_weights[idx]\n            v = rem_values[idx]\n            if w <= cap_take:\n                cap_take -= w\n                upper_take += v\n            else:\n                upper_take += (cap_take / w) * v\n                break\n    else:\n        upper_no_take = 0.0\n        upper_take = current_value\n    \n    # 计算“决策梯度”：拿与不拿的上界差值\n    gradient = upper_take - upper_no_take\n    \n    # 计算置信度调节因子：基于当前物品价值在全局价值分布中的位置\n    all_values = values\n    mean_val = np.mean(all_values)\n    std_val = np.std(all_values) + 1e-6\n    z_score = (current_value - mean_val) / std_val\n    # 使用sigmoid将z-score映射到0.5~1.5之间，作为调节系数\n    confidence_factor = 1.0 + 0.5 * (1.0 / (1.0 + np.exp(-z_score)) - 0.5)\n    \n    # 动态阈值：基于剩余容量比例调整\n    capacity_ratio = current_weight / (remaining_capacity + 1e-6)\n    threshold = 0.0  # 当梯度为正时倾向于拿，否则不拿，但加入置信度微调\n    \n    # 决策：若梯度大于阈值，且置信度因子支持，则拿取\n    if gradient > threshold * confidence_factor:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 22.6875
+    },
+    {
+      "concept": "新启发式基于“概率扰动与多目标权衡”思想，通过引入随机扰动因子打破贪心确定性，同时利用局部搜索和模拟退火机制平衡探索与利用。在每个决策点，计算物品的“价值密度”和“容量占用比”，并结合随机概率选择是否拿取，从而避免局部最优并增强解多样性。",
+      "feature": [
+        "概率扰动",
+        "多目标权衡",
+        "模拟退火",
+        "局部搜索"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    # 计算当前物品的价值密度和容量占用比\n    current_density = values[current_index] / weights[current_index]\n    capacity_ratio = weights[current_index] / (remaining_capacity + 1e-6)\n    \n    # 计算剩余物品的平均价值密度\n    remaining_indices = list(range(current_index+1, num_items))\n    if remaining_indices:\n        feasible = weights[remaining_indices] <= remaining_capacity\n        if np.any(feasible):\n            avg_density = np.mean(values[remaining_indices][feasible] / weights[remaining_indices][feasible])\n        else:\n            avg_density = 0.0\n    else:\n        avg_density = 0.0\n    \n    # 基础分数：结合价值密度和容量占用比，引入随机扰动\n    base_score = current_density * (1 - capacity_ratio * 0.5)\n    noise = np.random.uniform(-0.1, 0.1)  # 随机扰动\n    threshold = avg_density * 0.8 + noise\n    \n    # 引入模拟退火局部搜索：根据剩余容量大小动态调整\n    if remaining_capacity > 0.7 * (weights[current_index] + np.sum(weights[current_index:])):  # 容量充裕\n        if current_density >= threshold:\n            return 1.0\n        else:\n            return 0.0\n    else:  # 容量紧张时更保守\n        if current_density >= avg_density * 0.9 + noise * 0.5:\n            return 1.0\n        else:\n            return 0.0",
+      "objective": 1706.25
+    },
+    {
+      "concept": "该启发式采用动态规划的“未来价值预期”思想，在每个决策点计算物品的“价值密度”（单位重量价值）以及考虑剩余容量下该物品的相对性价比，结合局部贪心选择：若当前物品能装入，则比较其价值密度与一个基于剩余容量和剩余物品平均值设定的阈值，若价值密度高于阈值则选，否则不选，从而在逐个决策中兼顾当前与潜在收益。",
+      "feature": [
+        "价值密度贪心",
+        "动态阈值调整"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 如果剩余容量不足，直接返回0\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    # 计算当前物品的价值密度\n    current_density = values[current_index] / weights[current_index]\n    \n    # 计算剩余物品平均价值密度（不包括当前物品）\n    remaining_indices = list(range(current_index+1, num_items))\n    if remaining_indices:\n        filtered_weights = weights[remaining_indices]\n        # 只考虑能装下的物品\n        feasible = filtered_weights <= remaining_capacity\n        if np.any(feasible):\n            avg_density = np.mean(values[remaining_indices][feasible] / weights[remaining_indices][feasible])\n        else:\n            avg_density = 0.0\n    else:\n        avg_density = 0.0\n    \n    # 阈值：当前密度是否高于平均密度的90%（可调参数）\n    threshold = 0.9 * avg_density if avg_density > 0 else 0.0\n    \n    # 如果当前物品价值密度超过阈值则拿，否则不拿\n    if current_density >= threshold:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 1796.640625
+    },
+    {
+      "concept": "该启发式基于“矛盾冲突与解耦重构”思想，通过识别当前物品与剩余物品在容量占用上的“冲突强度”以及价值贡献的“互补性”来决策。核心是构建一个“解耦系数”：计算当前物品重量占剩余容量的比例与后续物品中高价值密度物品比例的矛盾程度，结合当前物品价值在整体价值分布中的偏离度，形成一个非线性决策函数。该函数动态评估当前物品是否与未来最优解结构相容，若相容则拿取否则放弃，从而避免局部冲突导致的整体解质量下降。",
+      "feature": [
+        "冲突识别",
+        "解耦系数",
+        "价值偏离度",
+        "结构相容性"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / current_weight\n    \n    # 计算后续物品的冲突强度：高密度物品中重量与当前物品重量冲突的比例\n    remaining_indices = list(range(current_index+1, num_items))\n    if remaining_indices:\n        rem_weights = weights[remaining_indices]\n        rem_values = values[remaining_indices]\n        rem_densities = rem_values / rem_weights\n        \n        # 筛选出密度高于当前物品密度的后续物品\n        higher_density_mask = rem_densities > current_density\n        if np.any(higher_density_mask):\n            conflict_weights = rem_weights[higher_density_mask]\n            # 计算这些高密度物品中重量大于等于当前物品重量的比例\n            conflict_ratio = np.mean(conflict_weights >= current_weight)\n        else:\n            conflict_ratio = 0.0\n    else:\n        conflict_ratio = 0.0\n    \n    # 计算当前物品价值在整个价值分布中的偏离度（使用z-score近似）\n    all_values = values\n    mean_val = np.mean(all_values)\n    std_val = np.std(all_values) + 1e-6\n    value_deviation = (current_value - mean_val) / std_val\n    \n    # 计算容量占用比\n    capacity_ratio = current_weight / (remaining_capacity + 1e-6)\n    \n    # 构建解耦系数：综合冲突强度、价值偏离度和容量占用比\n    # 解耦系数越大，表示当前物品与未来结构越相容\n    decoupling_coefficient = (1.0 - conflict_ratio) * (1.0 + 0.2 * value_deviation) * (1.0 - capacity_ratio * 0.5)\n    \n    # 动态阈值：基于当前物品密度与整体平均密度的比值\n    overall_avg_density = np.mean(values / weights) if num_items > 0 else 0.0\n    density_ratio = current_density / (overall_avg_density + 1e-6)\n    threshold = 0.5 * (1.0 + 0.5 * (density_ratio - 1.0))\n    \n    if decoupling_coefficient >= threshold:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 2024.75
+    },
+    {
+      "concept": "该启发式基于“风险对冲与效用衰减”思想，通过评估当前物品的边际效用与占用容量对后续物品组合效用的破坏程度来决策。核心是引入“容量弹性系数”，衡量当前物品对剩余容量的“压缩效应”，并结合物品在全局排序中的相对位置（如分位数）构建一个非线性决策函数。该函数综合考虑了物品的价值密度分位、容量占用百分比以及剩余物品的潜在总价值上限，形成一个动态的“接受概率”，有效平衡短时收益与长期容量灵活性。",
+      "feature": [
+        "效用衰减",
+        "容量弹性",
+        "分位阈值",
+        "全局排序"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    # 1. 计算当前物品的全局价值密度分位（相对于所有物品）\n    all_densities = values / weights\n    current_density = all_densities[current_index]\n    # 计算当前密度在所有密度中的百分位（0~1）\n    rank = np.sum(all_densities <= current_density) / num_items\n    quartile_factor = 1.0 + (rank - 0.5) * 0.4  # 中心为1.0，范围0.8~1.2\n\n    # 2. 计算容量弹性系数：当前物品重量占剩余容量的比例，越大破坏力越强\n    weight_ratio = weights[current_index] / (remaining_capacity + 1e-6)\n    elasticity = 1.0 / (1.0 + np.exp(5.0 * (weight_ratio - 0.3)))  # sigmoid型，当weight_ratio>0.3时快速衰减\n\n    # 3. 计算剩余物品的总价值潜力（按价值密度排序后贪心估计上限）\n    remaining_indices = list(range(current_index+1, num_items))\n    if remaining_indices:\n        rem_vals = values[remaining_indices]\n        rem_weights = weights[remaining_indices]\n        # 按价值密度降序排序\n        sorted_idx = np.argsort(-rem_vals / rem_weights)\n        cap_without = remaining_capacity\n        potential_value = 0.0\n        for idx in sorted_idx:\n            w = rem_weights[idx]\n            v = rem_vals[idx]\n            if w <= cap_without:\n                cap_without -= w\n                potential_value += v\n            else:\n                # 不采用部分取，提前终止\n                break\n        # 标准化潜力：相对于平均物品价值的倍数\n        avg_value = np.mean(values) + 1e-6\n        potential_ratio = potential_value / (avg_value * max(1, (num_items - current_index - 1)))\n    else:\n        potential_ratio = 0.0\n\n    # 4. 构建决策分数：综合密度分位、容量弹性、以及剩余潜力\n    score = (current_density * quartile_factor * elasticity) / (1.0 + potential_ratio * 0.5)\n\n    # 5. 阈值：使用全局平均密度作为基准，并加入弹性修正\n    global_avg_density = np.mean(all_densities)\n    threshold = global_avg_density * (0.8 + 0.2 * (1.0 - weight_ratio))\n\n    if score >= threshold:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 2617.3125
+    },
+    {
+      "concept": "该启发式基于“局部梯度提升与全局平衡度”思想，从每个物品的局部决策中提取“梯度得分”，即当前物品单位重量价值与后续物品在剩余容量下的边际替代率之差，并引入一个“全局平衡指数”来衡量当前选择对整体解结构的影响。通过比较当前物品的梯度得分与一个动态平衡阈值（由已选物品的平均价值和剩余物品的潜在密度分布决定），来决定是否拿取。该启发式避免直接使用贪心或随机扰动，而是通过对“局部利益-全局结构”进行量化权衡，实现更稳健的决策。",
+      "feature": [
+        "局部梯度计算",
+        "全局平衡指数",
+        "边际替代率",
+        "动态阈值"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    # 当前物品的边际价值密度\n    current_density = values[current_index] / weights[current_index]\n    \n    # 计算后续物品在剩余容量下的平均边际替代率（基于价值密度降序）\n    remaining_indices = list(range(current_index+1, num_items))\n    if remaining_indices:\n        rem_weights = weights[remaining_indices]\n        rem_values = values[remaining_indices]\n        rem_densities = rem_values / rem_weights\n        sorted_idx = np.argsort(-rem_densities)\n        # 从后续物品中选取能在剩余容量中放入的最优子集，计算其平均密度（边际替代率）\n        cap = remaining_capacity\n        selected_densities = []\n        for idx in sorted_idx:\n            w = rem_weights[idx]\n            if w <= cap:\n                cap -= w\n                selected_densities.append(rem_densities[idx])\n            if cap <= 0:\n                break\n        if selected_densities:\n            marginal_substitution_rate = np.mean(selected_densities)\n        else:\n            marginal_substitution_rate = 0.0\n    else:\n        marginal_substitution_rate = 0.0\n    \n    # 计算局部梯度得分：当前密度与边际替代率的差值\n    gradient_score = current_density - marginal_substitution_rate\n    \n    # 计算全局平衡指数：已选物品的平均价值密度（假设已选物品通过某种方式记录，这里用全局平均）与剩余物品密度分布的关系\n    # 作为简化，使用当前物品之前所有物品的平均密度（如果没有记录，则用整体平均密度近似）\n    # 这里使用整体平均密度作为基准\n    overall_avg_density = np.mean(values / weights)\n    # 动态阈值：基于整体平均密度和当前物品占剩余容量的比例进行调整\n    weight_ratio = weights[current_index] / (remaining_capacity + 1e-6)\n    threshold = overall_avg_density * (0.7 + 0.3 * np.exp(-weight_ratio * 3))\n    \n    # 如果梯度得分超过阈值，则拿取\n    if gradient_score >= threshold:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 2957.96875
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": []
+  }
+}

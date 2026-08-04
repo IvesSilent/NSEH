@@ -1,0 +1,121 @@
+{
+  "heuristics": [
+    {
+      "concept": "本启发式优化自“动态前瞻密度差与容量碎片抑制”框架，核心改进为：1）引入“半衰期加权历史密度”替代简单平均，增强对近期决策趋势的响应；2）将碎片惩罚系数与剩余容量比例耦合，使惩罚强度随背包紧张程度自适应；3）对密度优势进行归一化处理（除以当前密度），避免数值尺度干扰；4）简化决策门槛为单一自适应阈值，降低参数敏感度。通过这三项调整，算法在保持前瞻性同时，能更灵敏地捕捉容量状态变化，提升决策稳定性。",
+      "feature": [
+        "前瞻密度差",
+        "半衰期历史加权",
+        "自适应碎片惩罚",
+        "归一化优势评估",
+        "动态单门槛"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 当前密度\n    current_density = v / w if w > 0 else 1e9\n\n    # 前瞻：未来可行物品的平均密度\n    future_mask = np.arange(current_index + 1, num_items)\n    feasible_mask = (weights[future_mask] <= remaining_capacity) & (weights[future_mask] > 0)\n    if np.any(feasible_mask):\n        avg_future_density = np.sum(values[future_mask][feasible_mask]) / np.sum(weights[future_mask][feasible_mask])\n    else:\n        avg_future_density = 0.0\n\n    # 密度优势（归一化）\n    density_advantage = (current_density - avg_future_density) / max(current_density, 1e-9)\n\n    # 半衰期加权历史密度\n    if current_index > 0:\n        past_w = weights[:current_index]\n        past_v = values[:current_index]\n        # 半衰期为10，权重随时间指数衰减\n        decay_weights = np.power(0.5, np.arange(current_index - 1, -1, -1) / 10.0)\n        total_w = np.sum(past_w * decay_weights)\n        if total_w > 0:\n            past_avg_density = np.sum(past_v * decay_weights) / total_w\n        else:\n            past_avg_density = 0.0\n    else:\n        past_avg_density = 0.0\n\n    # 历史相对密度\n    if past_avg_density > 0:\n        hist_ratio = current_density / past_avg_density\n    else:\n        hist_ratio = 1.0\n\n    # 碎片惩罚（自适应系数）\n    remaining_after = remaining_capacity - w\n    total_weight = np.sum(weights)\n    remain_ratio = remaining_capacity / max(total_weight, 1e-9)\n\n    if remaining_after > 0:\n        future_min_w = np.min(weights[future_mask][feasible_mask]) if np.any(feasible_mask) else float('inf')\n        if future_min_w != float('inf') and remaining_after < future_min_w:\n            fragment_ratio = remaining_after / remaining_capacity\n            # 惩罚系数随剩余容量减小而增大（剩余越少，碎片越严重）\n            penalty_coeff = 0.3 + 0.7 * (1 - remain_ratio)\n            fragment_penalty = fragment_ratio * penalty_coeff\n        else:\n            fragment_penalty = 0.0\n    else:\n        fragment_penalty = 0.0\n\n    # 综合得分\n    score = density_advantage - fragment_penalty\n\n    # 动态阈值：剩余越多，门槛越低；历史密度较低时，降低门槛以鼓励探索\n    base_threshold = 0.05 - 0.1 * (hist_ratio - 1.0)\n    threshold = base_threshold * (1.5 - remain_ratio)\n\n    # 边界清仓\n    if remaining_after <= 0.05 * remaining_capacity and v > 0:\n        return 1\n\n    return 1 if score > threshold else 0",
+      "objective": 219.265625
+    },
+    {
+      "concept": "本启发式融合“密度趋势感知”与“容量弹性评估”，通过计算当前物品相对历史加权平均密度的动态偏移，结合取用后剩余容量的碎片化损失，构建自适应决策门槛。核心创新在于用半衰期权重强化近期决策影响，并以剩余容量比例动态调节密度优势阈值，在宽松期鼓励高密度物品，紧张期优先容量完整性，同时保留边界填充的强制规则，从而在全局规划与局部优化间取得动态平衡。",
+      "feature": [
+        "半衰期历史密度加权",
+        "动态碎片惩罚",
+        "容量自适应阈值",
+        "边界强制填充",
+        "归一化密度优势"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 当前密度\n    current_density = v / w if w > 0 else 1e9\n\n    # 前瞻未来可行物品的平均密度\n    future_indices = np.arange(current_index + 1, num_items)\n    feasible = (weights[future_indices] <= remaining_capacity) & (weights[future_indices] > 0)\n    if np.any(feasible):\n        avg_future_density = np.sum(values[future_indices][feasible]) / np.sum(weights[future_indices][feasible])\n    else:\n        avg_future_density = 0.0\n\n    # 归一化密度优势（相对值）\n    density_advantage = (current_density - avg_future_density) / max(current_density, 1e-9)\n\n    # 半衰期加权历史密度（半衰期为8，更强调近期）\n    if current_index > 0:\n        past_w = weights[:current_index]\n        past_v = values[:current_index]\n        decay_weights = np.power(0.5, np.arange(current_index - 1, -1, -1) / 8.0)\n        total_w = np.sum(past_w * decay_weights)\n        if total_w > 0:\n            past_avg_density = np.sum(past_v * decay_weights) / total_w\n        else:\n            past_avg_density = 0.0\n    else:\n        past_avg_density = 0.0\n\n    # 历史密度相对比\n    if past_avg_density > 0:\n        hist_ratio = current_density / past_avg_density\n    else:\n        hist_ratio = 1.0\n\n    # 剩余容量比例\n    total_weight = np.sum(weights)\n    remain_ratio = remaining_capacity / max(total_weight, 1e-9)\n\n    # 碎片惩罚（仅当取后剩余容量不足以容纳未来最小可行物品时）\n    remaining_after = remaining_capacity - w\n    fragment_penalty = 0.0\n    if remaining_after > 0:\n        if np.any(feasible):\n            min_future_w = np.min(weights[future_indices][feasible])\n            if remaining_after < min_future_w:\n                frag_ratio = remaining_after / max(remaining_capacity, 1e-9)\n                penalty_coeff = 0.2 + 0.8 * (1 - remain_ratio)\n                fragment_penalty = frag_ratio * penalty_coeff\n        # else: 无未来可行物品，碎片不构成惩罚，保持0\n\n    # 综合得分：密度优势 + 历史密度微调 - 碎片惩罚\n    score = density_advantage + (hist_ratio - 1.0) * 0.2 - fragment_penalty\n\n    # 自适应阈值：剩余容量越多，阈值越低；历史密度低于平均时降低门槛鼓励选择\n    base_threshold = 0.05 - 0.15 * (hist_ratio - 1.0)\n    threshold = base_threshold * (1.5 - remain_ratio)\n\n    # 边界强制填充：取后剩余极少且价值为正\n    if remaining_after <= 0.05 * max(remaining_capacity, 1e-9) and v > 0:\n        return 1\n\n    # 密度优势显著时直接选择\n    if density_advantage > 0.3:\n        return 1\n\n    return 1 if score > threshold else 0",
+      "objective": 244.34375
+    },
+    {
+      "concept": "该启发式的核心思想是基于“前瞻性机会成本”与“局部拥挤度”的平衡：在决策当前物品时，不仅考虑其自身价值密度，还预估如果选择该物品，对后续剩余容量可容纳的“潜在平均价值”的影响。通过比较当前物品带来的直接收益与放弃它可能保留给后续更高价值组合的机会成本，并引入基于已遍历物品平均密度的动态阈值，形成与价值密度+容量匹配完全不同的决策逻辑。策略上强调全局视角的局部化近似，避免仅依赖当前物品属性。",
+      "feature": [
+        "前瞻机会成本",
+        "动态密度阈值",
+        "剩余价值预估"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 计算当前物品价值密度\n    current_density = v / w if w > 0 else 1e9\n\n    # 预估剩余物品的平均价值密度（从下一个物品到结束）\n    remaining_weights = weights[current_index+1:]\n    remaining_values = values[current_index+1:]\n    if len(remaining_weights) > 0:\n        total_rem_w = np.sum(remaining_weights)\n        total_rem_v = np.sum(remaining_values)\n        avg_future_density = total_rem_v / total_rem_w if total_rem_w > 0 else 0.0\n    else:\n        avg_future_density = 0.0\n\n    # 计算机会成本：当前物品的相对密度与未来平均密度的比较\n    # 如果当前密度远高于未来平均，则更值得拿；否则可能放弃保留空间\n    density_advantage = current_density - avg_future_density\n\n    # 容量利用率：如果拿当前物品后剩余容量占比很小（接近满包），则更倾向拿，因为利用充分\n    future_remaining = remaining_capacity - w\n    capacity_usage_score = future_remaining / max(remaining_capacity, 1)\n\n    # 动态阈值：基于已遍历物品的平均密度来决定选择倾向\n    # 已遍历物品包括当前索引之前的物品\n    past_weights = weights[:current_index]\n    past_values = values[:current_index]\n    if len(past_weights) > 0:\n        past_avg_density = np.sum(past_values) / np.sum(past_weights) if np.sum(past_weights) > 0 else 0.0\n    else:\n        past_avg_density = 0.0\n\n    # 综合评分：密度优势占主导，容量利用作为修正，并用历史平均密度做阈值\n    score = density_advantage * 0.7 + (1 - capacity_usage_score) * 0.3\n\n    # 如果当前密度高于过去平均密度，且密度优势为正，则选择\n    if current_density > past_avg_density and density_advantage > 0:\n        return 1\n    elif score > 0:\n        return 1\n    else:\n        return 0",
+      "objective": 472.3125
+    },
+    {
+      "concept": "该启发式基于“收益-风险双维度动态评估”与“容量生命周期”的决策逻辑。核心思想是：将当前物品视为一次投资决策，同时评估其绝对价值贡献（收益）和其重量在剩余容量中的相对风险（风险）。不同于已有方法，本策略引入“容量生命周期指数”，该指数基于当前剩余容量与总容量的比值动态调整决策阈值，模拟背包从“宽松期”到“紧张期”的过渡。在宽松期，更看重价值密度；在紧张期，更看重容量利用率和填充完整性。同时，通过比较当前物品价值与剩余物品价值的累计比例，构建“机会保留度”指标，避免过早消耗容量而错失后续更高总价值组合。该策略结合了全局统计和局部容量状态，不依赖相邻物品比较或复杂预测，形成独特的决策路径。",
+      "feature": [
+        "容量生命周期指数",
+        "收益风险比",
+        "机会累计保留",
+        "动态阈值调整"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 1. 计算总容量和已用比例（用于生命周期指数）\n    if 'total_capacity' in kwargs:\n        total_cap = kwargs['total_capacity']\n    else:\n        total_cap = remaining_capacity + np.sum(weights[:current_index])\n    total_cap = max(total_cap, 1e-6)\n    remain_ratio = remaining_capacity / total_cap  # 剩余容量比例\n\n    # 2. 容量生命周期指数：从0（宽松）到1（紧张）\n    # 使用sigmoid函数平滑过渡，使决策在背包填充过程中逐渐转变\n    life_cycle = 1.0 / (1.0 + np.exp(-10 * (1.0 - remain_ratio - 0.5)))  # 当remain_ratio < 0.5时，life_cycle增大\n\n    # 3. 收益-风险比评估\n    value_density = v / w if w > 0 else 1e9\n    # 风险：当前物品重量占剩余容量的比例，越接近1风险越大（可能填满但无法组合）\n    risk = w / remaining_capacity if remaining_capacity > 0 else 1.0\n    # 收益-风险比：收益是价值密度，风险是重量占比，追求高密度低风险\n    benefit_risk_ratio = value_density * (1.0 - risk + 0.1)  # 加0.1避免零\n\n    # 4. 机会累计保留度：考虑当前物品价值与未来所有物品价值总和的比例\n    future_total_value = np.sum(values[current_index:]) if current_index < num_items else v\n    current_value_share = v / max(future_total_value, 1e-6)  # 当前价值占未来总价值的比例\n    # 若当前物品价值占比很高（>0.3），说明是未来价值的关键部分，应倾向选择\n\n    # 5. 动态阈值调整：基于生命周期指数\n    # 在宽松期（life_cycle小），主要关注价值密度；在紧张期（life_cycle大），主要关注容量利用率\n    if life_cycle < 0.3:\n        # 宽松期：价值密度主导\n        base_threshold = 1.5\n        score = value_density\n    elif life_cycle > 0.7:\n        # 紧张期：容量利用率主导\n        base_threshold = 0.6\n        # 利用效率：取后剩余容量越小且价值贡献大，得分越高\n        fill_efficiency = v / max(w, 1e-6) + (1 - (remaining_capacity - w) / max(remaining_capacity, 1e-6))\n        score = fill_efficiency\n    else:\n        # 过渡期：综合\n        base_threshold = 1.0\n        score = benefit_risk_ratio\n\n    # 6. 综合决策\n    # 若当前物品价值占未来总价值比例很高，直接选择\n    if current_value_share > 0.3 and v > 0:\n        return 1\n    # 若容量紧张且当前物品能填满剩余大部分空间，强制选择（终点效应）\n    if remain_ratio < 0.15 and (remaining_capacity - w) / max(remaining_capacity, 1e-6) < 0.1 and v > 0:\n        return 1\n    # 基于得分和动态阈值决策\n    if score > base_threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 595.625
+    },
+    {
+      "concept": "本新启发式核心思想是“动态前瞻密度差与容量碎片抑制”的融合。它通过综合评估当前物品相对未来可行物品的密度优势、当前容量状态下的碎片化损失，以及历史决策的趋势影响，形成一个复合得分。算法不再单纯依赖单一阈值，而是设计了一个随剩余容量比例自适应调整的双重决策门槛，在收益与风险间寻求动态平衡。该设计旨在规避已有启发式因固定参数或单一视角导致的早熟收敛或决策盲区，从而在多样化的背包实例上产生更稳健的搜索轨迹。",
+      "feature": [
+        "前瞻密度差",
+        "容量碎片抑制",
+        "历史趋势感知",
+        "自适应双门槛"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品价值密度\n    current_density = v / w if w > 0 else 1e9\n\n    # 2. 前瞻：计算未来所有可行物品的平均密度\n    future_indices = np.arange(current_index + 1, num_items)\n    feasible_future_w = []\n    feasible_future_v = []\n    if len(future_indices) > 0:\n        for idx in future_indices:\n            if weights[idx] <= remaining_capacity:\n                feasible_future_w.append(float(weights[idx]))\n                feasible_future_v.append(float(values[idx]))\n    \n    if len(feasible_future_w) > 0:\n        avg_future_density = np.sum(feasible_future_v) / np.sum(feasible_future_w)\n    else:\n        avg_future_density = 0.0\n\n    # 3. 动态密度优势系数\n    density_advantage = current_density - avg_future_density\n\n    # 4. 容量碎片抑制效应：计算取用后剩余容量的“不可用比例”的惩罚\n    remaining_after = remaining_capacity - w\n    if remaining_after > 0:\n        # 寻找未来最小可行物品重量，用于估算碎片化损失\n        if len(feasible_future_w) > 0:\n            min_future_w = min(feasible_future_w)\n        else:\n            min_future_w = float('inf')\n        # 如果剩余容量小于未来最小物品重量，则产生碎片损失，施加惩罚\n        fragment_penalty = 0.0\n        if min_future_w != float('inf') and remaining_after < min_future_w:\n            # 惩罚强度与碎片比例相关\n            fragment_ratio = remaining_after / remaining_capacity\n            fragment_penalty = fragment_ratio * 0.5\n        else:\n            fragment_penalty = 0.0\n    else:\n        fragment_penalty = 0.0\n\n    # 5. 历史趋势感知：计算已遍历物品的平均密度，作为基线回调\n    if current_index > 0:\n        past_w = weights[:current_index]\n        past_v = values[:current_index]\n        total_past_w = np.sum(past_w)\n        if total_past_w > 0:\n            past_avg_density = np.sum(past_v) / total_past_w\n        else:\n            past_avg_density = 0.0\n    else:\n        past_avg_density = 0.0\n\n    # 6. 自适应双门槛：基于剩余容量比例调整决策阈值\n    total_weight = np.sum(weights)\n    remain_ratio = remaining_capacity / max(total_weight, 1e-6)\n\n    # 门槛1（宽松期）：相对更看重密度优势\n    # 门槛2（紧张期）：相对更看重碎片避免\n    if remain_ratio > 0.5:\n        # 宽松期：主要看密度，碎片影响小\n        base_threshold = 0.1\n        # 综合得分：密度优势占主导，减去碎片惩罚\n        score = density_advantage - fragment_penalty * 0.2\n        # 增加历史趋势微调\n        if current_density < past_avg_density * 0.8:\n            score -= 0.2\n        # 边界处理：若取后剩余容量极小且v>0，直接取\n        if remaining_after <= 0.05 * remaining_capacity and v > 0:\n            return 1\n        return 1 if score > base_threshold else 0\n    else:\n        # 紧张期：更关注碎片和容量利用，密度优势要求更高\n        base_threshold = 0.2\n        # 综合得分：密度优势需更明显，碎片惩罚加大\n        score = density_advantage - fragment_penalty * 0.8\n        # 给正面碎片效应加分：如果取后剩余恰好能容纳未来某物，则加分\n        # 这里简化：如果剩余容量与未来某物品重量接近，则加分（略写）\n        # 边界处理：若取后剩余容量极小且v>0，直接取\n        if remaining_after <= 0.05 * remaining_capacity and v > 0:\n            return 1\n        return 1 if score > base_threshold else 0",
+      "objective": 694.21875
+    },
+    {
+      "concept": "本启发式基于“局部密度突变检测”与“边界收益归零”的决策逻辑。核心思想是：在当前物品决策时，不比较其与全局或未来的平均密度，而是检测该物品相对于前一个物品的密度突变程度，以及当前剩余容量是否处于“可被该物品几乎填满”的边界状态。若密度显著上升且剩余容量足够，则取；若剩余容量在取后接近零且当前物品价值尚可，则强制取；否则倾向于放弃，以保持容量灵活性。该策略刻意避开价值密度排序或前瞻平均，转而关注相邻物品间的相对差异与容量利用的“终点效应”，从而产生与现有启发式截然不同的搜索轨迹。  \n{ [密度突变检测] + [边界容量强制] + [相邻比较] + [保守占用]",
+      "feature": [],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n    \n    current_density = v / w if w > 0 else 1e9\n    \n    # 密度突变检测：与上一物品密度比较\n    if current_index > 0:\n        prev_w = float(weights[current_index - 1])\n        prev_v = float(values[current_index - 1])\n        prev_density = prev_v / prev_w if prev_w > 0 else 0.0\n        density_change = current_density - prev_density\n    else:\n        density_change = current_density  # 第一个物品默认视为突变\n    \n    # 边界容量强制：若取后剩余容量极小，则倾向取\n    remaining_after = remaining_capacity - w\n    fill_ratio = remaining_after / max(remaining_capacity, 1)\n    is_boundary = fill_ratio <= 0.1\n    \n    # 保守占用：若当前密度低于上个物品密度且不处于边界，则放弃\n    if density_change < 0 and not is_boundary:\n        return 0\n    \n    # 若密度显著上升且容量足够，取\n    if density_change > 0 and w <= remaining_capacity:\n        return 1\n    \n    # 边界强制取\n    if is_boundary and v > 0:\n        return 1\n    \n    # 默认保守\n    return 0",
+      "objective": 976.84375
+    },
+    {
+      "concept": "基于“决策时间线压缩”与“收益延迟实现”的启发式：将当前物品视为一个时间节点，通过计算其重量在剩余背包空间中的“占位成本”以及其价值在未来可能产生“连锁机会”的潜力，构建决策树的一步剪枝近似。核心逻辑是：不仅评估当前物品的直接收益，还预估若现在不选它，后续物品中是否存在能完全替代其重量且价值更高的“影子替代品”。通过比较当前物品与未来最佳单件替代品的价值差和重量差，决定是否立即“锁定”该物品，同时引入剩余容量不足时的“强制清仓”规则。该策略不依赖密度或统计偏差，而是从“决策时效性”和“替代成本”角度进行二元博弈。",
+      "feature": [
+        "时效性评估",
+        "影子替代品比较",
+        "延迟惩罚系数",
+        "容量清仓规则"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 1. 寻找未来最佳单件替代品（从下一个物品到结束，选取价值最高且重量不超过剩余容量的）\n    future_indices = np.arange(current_index + 1, num_items)\n    best_future_value = 0.0\n    best_future_weight = 0.0\n    for idx in future_indices:\n        if weights[idx] <= remaining_capacity:\n            if values[idx] > best_future_value:\n                best_future_value = values[idx]\n                best_future_weight = weights[idx]\n\n    # 2. 计算当前物品的“时效性收益”：若现在选，立即可得；若等未来替代品，需承担不确定性\n    # 延迟惩罚系数：剩余容量越小，未来不确定性越高（因为容量越紧，替代品可能无法装下）\n    delay_penalty = 1.0 if remaining_capacity > 0.5 * np.sum(weights) else 0.5\n    future_adjusted_value = best_future_value * delay_penalty\n\n    # 3. 比较当前物品与未来最佳替代品的“价值差值”和“重量占用差”\n    value_diff = v - future_adjusted_value\n    weight_diff = w - best_future_weight  # 若当前物品更重且价值更低，则不应选\n\n    # 4. 容量清仓规则：若剩余容量很小，且当前物品能填满大部分剩余空间，则强制选择\n    fill_ratio_after = (remaining_capacity - w) / max(remaining_capacity, 1e-6)\n    is_clearance = remaining_capacity <= 0.2 * np.sum(weights) and fill_ratio_after <= 0.1\n\n    # 5. 决策逻辑：\n    #    - 如果当前物品价值大于未来替代品（考虑延迟惩罚），且不是明显劣势（重量更重但价值没高太多），则选\n    #    - 若处于清仓边界，则强制选\n    if is_clearance:\n        return 1\n    if value_diff > 0 and (weight_diff <= 0 or v / w > 1.0):\n        return 1\n    # 若当前物品是唯一能在剩余容量内放下的（即未来无任何可替代物品），则选\n    if best_future_value == 0 and v > 0:\n        return 1\n    return 0",
+      "objective": 1017.25
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "前瞻密度差",
+        "半衰期历史加权",
+        "自适应碎片惩罚",
+        "归一化优势评估",
+        "动态单门槛"
+      ],
+      [
+        "半衰期历史密度加权",
+        "动态碎片惩罚",
+        "容量自适应阈值",
+        "边界强制填充",
+        "归一化密度优势"
+      ],
+      [
+        "前瞻机会成本",
+        "动态密度阈值",
+        "剩余价值预估"
+      ]
+    ],
+    "negative_features": [
+      [
+        "密度突变检测",
+        "未来替代品比较",
+        "双阈值决策",
+        "容量弹性评估",
+        "边界强制清仓"
+      ],
+      [
+        "空间填充模式",
+        "组合互补配对",
+        "容量碎片填补",
+        "随机规则切换"
+      ],
+      [
+        "填充相位符号",
+        "剩余容量价值锚定",
+        "密度上限修正",
+        "波形决策路径"
+      ]
+    ]
+  }
+}

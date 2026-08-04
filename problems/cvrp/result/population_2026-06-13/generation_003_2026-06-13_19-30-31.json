@@ -1,0 +1,154 @@
+{
+  "heuristics": [
+    {
+      "concept": "本启发式基于积极经验中“最近邻-密度-裕度”三角优势，并吸收消极经验中“复杂动态权重与高阶指标易过度拟合”的教训，采用**稳健双核评分**机制。首先筛选容量可行节点，计算两个核心指标：最近邻引力（距离越近得分越高）和需求密度引力（单位距离服务需求量越大越好）。两个指标分别归一化后，根据当前负载率动态调整权重——负载率较低时侧重最近邻引力以缩短路径，负载率较高时侧重密度引力以高效利用剩余容量，避免了固定权重在极端情况下的失效。该设计在计算效率上与最近邻同级，但通过轻量级负载自适应显著提升了鲁棒性。若无可行节点则返回-1。",
+      "feature": [
+        "最近邻",
+        "需求密度",
+        "负载自适应动态权重",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    # 容量可行节点筛选\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    if len(feasible_nodes) == 0:\n        return -1\n\n    if len(feasible_nodes) == 1:\n        return feasible_nodes[0]\n\n    # 获取距离与需求\n    distances = distance_matrix[current_node, feasible_nodes]\n    demands = demand_list[feasible_nodes]\n    safe_dist = np.where(distances == 0, 1e-12, distances)\n\n    # 1. 最近邻引力: 1 / (1 + distance)\n    neighbor_score = 1.0 / (1.0 + safe_dist)\n\n    # 2. 需求密度引力: demand / distance\n    density_score = demands / safe_dist\n\n    # 分别归一化至[0,1]\n    # 最近邻引力归一化\n    ns_min, ns_max = np.min(neighbor_score), np.max(neighbor_score)\n    if ns_max - ns_min > 1e-12:\n        norm_neighbor = (neighbor_score - ns_min) / (ns_max - ns_min)\n    else:\n        norm_neighbor = np.ones_like(neighbor_score) * 0.5\n\n    # 密度引力归一化\n    ds_min, ds_max = np.min(density_score), np.max(density_score)\n    if ds_max - ds_min > 1e-12:\n        norm_density = (density_score - ds_min) / (ds_max - ds_min)\n    else:\n        norm_density = np.ones_like(density_score) * 0.5\n\n    # 根据负载率动态调整权重：负载率越高，越偏向密度（高效利用剩余容量）\n    load_ratio = current_load / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    w_density = 0.3 + 0.4 * load_ratio   # 密度权重范围 0.3~0.7\n    w_neighbor = 1.0 - w_density          # 近邻权重范围 0.7~0.3\n\n    # 综合评分\n    scores = w_neighbor * norm_neighbor + w_density * norm_density\n    best_idx = np.argmax(scores)\n    return feasible_nodes[best_idx]",
+      "objective": -750.6975630310004
+    },
+    {
+      "concept": "本启发式综合最近邻、需求密度与裕度保障的优点，提出“动态密度-距离引力”机制。从当前节点出发，首先筛选容量可行节点。对每个可行节点，计算其“单位距离服务需求量”（需求/距离）作为密度引力，同时计算当前节点到该节点的距离的倒数作为近邻引力，避免远距离低效绕行。将密度引力与近邻引力进行归一化后，结合当前负载率动态加权：负载率较低时侧重近邻引力以缩短路径，负载率较高时侧重密度引力以高效利用剩余容量。选择得分最高的节点；若无可选可行节点则返回-1。",
+      "feature": [
+        "动态加权",
+        "密度引力",
+        "近邻引力",
+        "负载自适应",
+        "容量约束"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    # 容量可行节点筛选\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    if len(feasible_nodes) == 0:\n        return -1\n\n    if len(feasible_nodes) == 1:\n        return feasible_nodes[0]\n\n    # 计算距离、需求\n    distances = distance_matrix[current_node, feasible_nodes]\n    demands = demand_list[feasible_nodes]\n    safe_dist = np.where(distances == 0, 1e-12, distances)\n\n    # 密度引力：需求/距离\n    density = demands / safe_dist\n\n    # 近邻引力：1/距离\n    neighbor_attraction = 1.0 / safe_dist\n\n    # 归一化密度引力\n    d_min, d_max = np.min(density), np.max(density)\n    if d_max - d_min > 1e-12:\n        norm_density = (density - d_min) / (d_max - d_min)\n    else:\n        norm_density = np.ones_like(density) * 0.5\n\n    # 归一化近邻引力\n    n_min, n_max = np.min(neighbor_attraction), np.max(neighbor_attraction)\n    if n_max - n_min > 1e-12:\n        norm_neighbor = (neighbor_attraction - n_min) / (n_max - n_min)\n    else:\n        norm_neighbor = np.ones_like(neighbor_attraction) * 0.5\n\n    # 负载率动态权重：负载率越低，越倾向近邻；负载率越高，越倾向密度\n    load_ratio = current_load / vehicle_capacity if vehicle_capacity > 0 else 0.0\n    # 权重随负载率从0.3到0.7线性变化\n    density_weight = 0.3 + 0.4 * load_ratio\n    neighbor_weight = 1.0 - density_weight\n\n    # 复合得分\n    score = density_weight * norm_density + neighbor_weight * norm_neighbor\n    best_idx = np.argmax(score)\n    return feasible_nodes[best_idx]",
+      "objective": -743.4381285365284
+    },
+    {
+      "concept": "从当前节点出发，在未服务的客户中优先选择距离最近且加入后不超过车辆剩余容量的节点作为下一个配送点；若所有未服务节点都无法满足容量约束，则返回-1表示车辆需返回仓库补货。该算法通过贪心最近邻策略在局部最优与容量约束之间权衡，以快速构建可行路径。",
+      "feature": [
+        "最近邻",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    # 获取所有未服务节点的索引\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n    \n    # 计算每个未服务节点加入后新负载\n    new_loads = current_load + demand_list[unserved]\n    # 选出容量可行的节点\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n    \n    # 从可行节点中选距离当前节点最近的\n    distances = distance_matrix[current_node, feasible]\n    best_idx = np.argmin(distances)\n    return feasible[best_idx]",
+      "objective": -740.9978434849475
+    },
+    {
+      "concept": "本启发式基于积极经验中的“最近邻-密度-裕度”三角优势，并吸取消极经验中“复杂动态权重与高阶指标易过拟合”的教训，采用**精简双核评分**机制。首先筛选容量可行节点，计算两个核心指标：最近邻引力（距离越近得分越高）和需求密度引力（单位距离服务需求量越大越好）。两个指标分别归一化后，采用**固定均等权重**（各0.5）相加为综合评分，避免了动态权重调节的不稳定性。此设计在计算效率上与最近邻法同级，但通过双维度平衡增强了鲁棒性，同时避免了裕度计算带来的额外开销。若无可行节点则返回-1。",
+      "feature": [
+        "最近邻",
+        "需求密度",
+        "固定权重融合",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    # 容量可行性筛选\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    if len(feasible_nodes) == 0:\n        return -1\n\n    if len(feasible_nodes) == 1:\n        return feasible_nodes[0]\n\n    # 获取距离和需求\n    distances = distance_matrix[current_node, feasible_nodes]\n    demands = demand_list[feasible_nodes]\n    safe_dist = np.where(distances == 0, 1e-12, distances)\n\n    # 1. 最近邻引力: 1 / (1 + distance)\n    neighbor_score = 1.0 / (1.0 + safe_dist)\n\n    # 2. 需求密度引力: demand / distance\n    density_score = demands / safe_dist\n\n    # 分别归一化至[0,1]\n    # 最近邻引力归一化\n    ns_min, ns_max = np.min(neighbor_score), np.max(neighbor_score)\n    if ns_max - ns_min > 1e-12:\n        norm_neighbor = (neighbor_score - ns_min) / (ns_max - ns_min)\n    else:\n        norm_neighbor = np.ones_like(neighbor_score) * 0.5\n\n    # 密度引力归一化\n    ds_min, ds_max = np.min(density_score), np.max(density_score)\n    if ds_max - ds_min > 1e-12:\n        norm_density = (density_score - ds_min) / (ds_max - ds_min)\n    else:\n        norm_density = np.ones_like(density_score) * 0.5\n\n    # 固定均等权重融合（各0.5）\n    scores = 0.5 * norm_neighbor + 0.5 * norm_density\n    best_idx = np.argmax(scores)\n    return feasible_nodes[best_idx]",
+      "objective": -734.3452173460839
+    },
+    {
+      "concept": "本启发式基于积极经验中“最近邻-密度-裕度”三角优势的稳健性，并吸取消极经验中“复杂动态权重与高阶指标易过拟合”的教训，采用 **精简双核评分** 机制。首先筛选容量可行节点，计算两个核心指标：最近邻引力（距离越近得分越高）和需求密度引力（单位距离服务需求量越大越好）。两个指标分别归一化后，采用 **固定均等权重**（各0.5）相加为综合评分，避免了动态权重调节的不稳定性。此设计在计算效率上与最近邻法同级，但通过双维度平衡增强了鲁棒性，同时避免了裕度计算带来的额外开销。若无可行节点则返回-1。",
+      "feature": [
+        "最近邻",
+        "需求密度",
+        "固定权重融合",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    # 容量可行性筛选\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    if len(feasible_nodes) == 0:\n        return -1\n\n    if len(feasible_nodes) == 1:\n        return feasible_nodes[0]\n\n    # 获取距离和需求\n    distances = distance_matrix[current_node, feasible_nodes]\n    demands = demand_list[feasible_nodes]\n    safe_dist = np.where(distances == 0, 1e-12, distances)\n\n    # 1. 最近邻引力: 1 / (1 + distance)\n    neighbor_score = 1.0 / (1.0 + safe_dist)\n\n    # 2. 需求密度引力: demand / distance\n    density_score = demands / safe_dist\n\n    # 分别归一化至[0,1]\n    # 最近邻引力归一化\n    ns_min, ns_max = np.min(neighbor_score), np.max(neighbor_score)\n    if ns_max - ns_min > 1e-12:\n        norm_neighbor = (neighbor_score - ns_min) / (ns_max - ns_min)\n    else:\n        norm_neighbor = np.ones_like(neighbor_score) * 0.5\n\n    # 密度引力归一化\n    ds_min, ds_max = np.min(density_score), np.max(density_score)\n    if ds_max - ds_min > 1e-12:\n        norm_density = (density_score - ds_min) / (ds_max - ds_min)\n    else:\n        norm_density = np.ones_like(density_score) * 0.5\n\n    # 固定均等权重融合（各0.5）\n    scores = 0.5 * norm_neighbor + 0.5 * norm_density\n    best_idx = np.argmax(scores)\n    return feasible_nodes[best_idx]",
+      "objective": -734.3452173460839
+    },
+    {
+      "concept": "本启发式基于积极经验中“最近邻-密度-裕度”三角优势的稳健性，并吸取消极经验中“复杂动态权重、高阶指标及过拟合”的教训，采用**精简双核等权评分**机制。首先筛选容量可行节点，仅计算两个核心指标：最近邻引力（距离越近得分越高）和需求密度引力（单位距离服务需求量越大越好）。两个指标分别归一化后，采用**固定均等权重**（各0.5）相加为综合评分，完全避免动态权重调节的不稳定性。该设计在计算效率上与最近邻法同级，通过双维度平衡显著提升了鲁棒性，同时避免了裕度计算和复杂调节带来的额外开销与过拟合风险。若无可行节点则返回-1。",
+      "feature": [
+        "最近邻",
+        "需求密度",
+        "固定权重融合",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    if len(feasible_nodes) == 0:\n        return -1\n    if len(feasible_nodes) == 1:\n        return feasible_nodes[0]\n\n    distances = distance_matrix[current_node, feasible_nodes]\n    demands = demand_list[feasible_nodes]\n    safe_dist = np.where(distances == 0, 1e-12, distances)\n\n    neighbor_score = 1.0 / (1.0 + safe_dist)\n    density_score = demands / safe_dist\n\n    ns_min, ns_max = np.min(neighbor_score), np.max(neighbor_score)\n    if ns_max - ns_min > 1e-12:\n        norm_neighbor = (neighbor_score - ns_min) / (ns_max - ns_min)\n    else:\n        norm_neighbor = np.ones_like(neighbor_score) * 0.5\n\n    ds_min, ds_max = np.min(density_score), np.max(density_score)\n    if ds_max - ds_min > 1e-12:\n        norm_density = (density_score - ds_min) / (ds_max - ds_min)\n    else:\n        norm_density = np.ones_like(density_score) * 0.5\n\n    scores = 0.5 * norm_neighbor + 0.5 * norm_density\n    best_idx = np.argmax(scores)\n    return feasible_nodes[best_idx]",
+      "objective": -734.3452173460839
+    },
+    {
+      "concept": "本启发式基于积极经验中“最近邻-密度-裕度”三角优势的稳健性，并吸取消极经验中“复杂动态权重、高阶指标及过拟合”的教训，采用精简双核等权评分机制。首先筛选容量可行节点，仅计算两个核心指标：最近邻引力（距离越近得分越高）和需求密度引力（单位距离服务需求量越大越好）。两个指标分别归一化后，采用固定均等权重（各0.5）相加为综合评分，完全避免动态权重调节的不稳定性。该设计在计算效率上与最近邻法同级，通过双维度平衡显著提升了鲁棒性，同时避免了裕度计算和复杂调节带来的额外开销与过拟合风险。若无可行节点则返回-1。",
+      "feature": [
+        "最近邻",
+        "需求密度",
+        "固定权重融合",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    if len(feasible_nodes) == 0:\n        return -1\n    if len(feasible_nodes) == 1:\n        return feasible_nodes[0]\n\n    distances = distance_matrix[current_node, feasible_nodes]\n    demands = demand_list[feasible_nodes]\n    safe_dist = np.where(distances == 0, 1e-12, distances)\n\n    neighbor_score = 1.0 / (1.0 + safe_dist)\n    density_score = demands / safe_dist\n\n    ns_min, ns_max = np.min(neighbor_score), np.max(neighbor_score)\n    if ns_max - ns_min > 1e-12:\n        norm_neighbor = (neighbor_score - ns_min) / (ns_max - ns_min)\n    else:\n        norm_neighbor = np.ones_like(neighbor_score) * 0.5\n\n    ds_min, ds_max = np.min(density_score), np.max(density_score)\n    if ds_max - ds_min > 1e-12:\n        norm_density = (density_score - ds_min) / (ds_max - ds_min)\n    else:\n        norm_density = np.ones_like(density_score) * 0.5\n\n    scores = 0.5 * norm_neighbor + 0.5 * norm_density\n    best_idx = np.argmax(scores)\n    return feasible_nodes[best_idx]",
+      "objective": -734.3452173460839
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "最近邻",
+        "容量约束检查"
+      ],
+      [
+        "密度优先",
+        "裕度保障",
+        "复合引力",
+        "容量约束"
+      ],
+      [
+        "需求密度优先",
+        "容量约束检查"
+      ],
+      [
+        "最近邻",
+        "需求密度",
+        "负载自适应动态权重",
+        "容量约束检查"
+      ],
+      [
+        "动态加权",
+        "密度引力",
+        "近邻引力",
+        "负载自适应",
+        "容量约束"
+      ],
+      [
+        "最近邻",
+        "容量约束检查"
+      ]
+    ],
+    "negative_features": [
+      [
+        "二阶环绕收益",
+        "动态权重调节",
+        "需求填充率",
+        "回程效率"
+      ],
+      [
+        "距离引力",
+        "需求密度",
+        "容量裕度",
+        "延迟服务惩罚",
+        "负载自适应动态权重",
+        "混沌扰动"
+      ],
+      [
+        "角度优先",
+        "容量紧迫度调节",
+        "几何连贯性"
+      ],
+      [
+        "最近邻",
+        "容量裕度前瞻",
+        "负载均衡",
+        "加权评分"
+      ],
+      [
+        "孤立风险感知",
+        "空间分散度评估",
+        "时间紧迫度评估",
+        "容量约束检查"
+      ],
+      [
+        "需求匹配度",
+        "回程浪费率",
+        "容量压力前瞻",
+        "乘积融合评分"
+      ]
+    ]
+  }
+}

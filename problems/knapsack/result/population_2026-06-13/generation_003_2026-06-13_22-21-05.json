@@ -1,0 +1,219 @@
+{
+  "heuristics": [
+    {
+      "concept": "基于对21个启发式的分析，积极经验表明“冲突权衡+机会成本+线性规划松弛上界+贪心填充+双模融合”框架表现稳定，而消极经验提示应避免复杂的联合威胁矩阵和历史偏差校正。因此，新启发式将保留双模融合核心，并通过以下优化提升性能：1) 在动态权重中引入自适应衰减项，使决策在后期更依赖贪心填充以规避风险；2) 将分位数置信度改为基于密度优势的局部置信度，更精准反映当前物品的相对价值；3) 精简阈值计算，直接使用融合梯度与动态阈值的比较，移除冗余的绝对值缩放因子，使决策更直接高效。整体保持O(n)单次扫描，无随机扰动。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "自适应衰减权重",
+        "局部置信度",
+        "动态阈值",
+        "单次扫描优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 容量可行性剪枝\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / (current_weight + 1e-8)\n\n    # 剩余物品信息\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n\n    # 无后续物品时的基线决策\n    if n_rem == 0:\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-8)\n    sorted_idx = np.argsort(-rem_densities)\n\n    # 单次扫描：同时计算贪心填充（完整物品）和LP松弛上界（允许部分取）\n    cap_greedy_no = remaining_capacity\n    val_without_greedy = 0.0\n    cap_greedy_yes = remaining_capacity - current_weight\n    val_with_greedy = current_value\n\n    cap_lp_no = remaining_capacity\n    upper_no_take = 0.0\n    cap_lp_yes = remaining_capacity - current_weight\n    upper_take = current_value\n    lp_no_done = False\n    lp_yes_done = False\n\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n\n        # 贪心填充\n        if w <= cap_greedy_no:\n            cap_greedy_no -= w\n            val_without_greedy += v\n        if w <= cap_greedy_yes:\n            cap_greedy_yes -= w\n            val_with_greedy += v\n\n        # LP松弛上界\n        if not lp_no_done:\n            if w <= cap_lp_no:\n                cap_lp_no -= w\n                upper_no_take += v\n            else:\n                upper_no_take += (cap_lp_no / (w + 1e-8)) * v\n                lp_no_done = True\n        if not lp_yes_done:\n            if w <= cap_lp_yes:\n                cap_lp_yes -= w\n                upper_take += v\n            else:\n                upper_take += (cap_lp_yes / (w + 1e-8)) * v\n                lp_yes_done = True\n\n    gradient_greedy = val_with_greedy - val_without_greedy\n    gradient_lp = upper_take - upper_no_take\n\n    # 核心指标计算\n    capacity_ratio = current_weight / (remaining_capacity + 1e-8)\n    avg_rem_density = np.mean(rem_densities) if n_rem > 0 else 0.0\n    density_advantage = current_density / (avg_rem_density + 1e-8)\n\n    # 自适应衰减权重：决策进度增加时，贪心权重递增（更保守）\n    progress = current_index / num_items\n    alpha_base = 0.6 * (1.0 - capacity_ratio) + 0.4 * np.tanh(density_advantage - 0.8)\n    decay = 0.3 * progress  # 后期增加贪心权重\n    alpha = np.clip(alpha_base + decay, 0.2, 0.9)\n    beta = 1.0 - alpha\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n\n    # 局部置信度：基于当前密度与剩余平均密度的偏离，使用sigmoid映射到[0.8, 1.2]\n    density_bias = np.tanh((current_density - avg_rem_density) / (avg_rem_density + 1e-8))\n    confidence = 1.0 + 0.2 * density_bias\n\n    # 自适应阈值：直接基于容量压力和密度优势动态调整\n    base_threshold = 0.08 * capacity_ratio * (2.0 - np.clip(density_advantage, 0.5, 2.0))\n    threshold = base_threshold * confidence\n\n    # 决策：融合梯度大于阈值则拿，否则不拿\n    return 1.0 if fused_gradient > threshold else 0.0",
+      "objective": 1.359375
+    },
+    {
+      "concept": "本启发式在“冲突权衡-机会成本-双模融合”框架基础上，通过引入**自适应衰减权重**和**局部置信度**进一步优化决策精度。核心改进包括：1) 动态权重中融入决策进度衰减项，使得决策后期更偏向贪心填充的保守策略，以降低容量紧张时的误判风险；2) 将全局分位数置信度替换为基于当前密度与剩余平均密度偏离的局部置信度，更精准地反映当前物品的相对优势；3) 精简阈值计算，移除冗余缩放因子，使决策直接基于融合梯度与动态阈值的比较，提升计算效率。整体保持O(n)单次扫描，无随机扰动，实现高效确定性的背包决策。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "自适应衰减权重",
+        "局部置信度",
+        "动态阈值",
+        "单次扫描优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 容量可行性剪枝\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / (current_weight + 1e-8)\n\n    # 剩余物品信息\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n\n    # 无后续物品时的基线决策\n    if n_rem == 0:\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-8)\n    sorted_idx = np.argsort(-rem_densities)\n\n    # 单次扫描：同时计算贪心填充和LP松弛上界\n    cap_greedy_no = remaining_capacity\n    val_without_greedy = 0.0\n    cap_greedy_yes = remaining_capacity - current_weight\n    val_with_greedy = current_value\n\n    cap_lp_no = remaining_capacity\n    upper_no_take = 0.0\n    cap_lp_yes = remaining_capacity - current_weight\n    upper_take = current_value\n    lp_no_done = False\n    lp_yes_done = False\n\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n\n        # 贪心填充\n        if w <= cap_greedy_no:\n            cap_greedy_no -= w\n            val_without_greedy += v\n        if w <= cap_greedy_yes:\n            cap_greedy_yes -= w\n            val_with_greedy += v\n\n        # LP松弛上界\n        if not lp_no_done:\n            if w <= cap_lp_no:\n                cap_lp_no -= w\n                upper_no_take += v\n            else:\n                upper_no_take += (cap_lp_no / (w + 1e-8)) * v\n                lp_no_done = True\n        if not lp_yes_done:\n            if w <= cap_lp_yes:\n                cap_lp_yes -= w\n                upper_take += v\n            else:\n                upper_take += (cap_lp_yes / (w + 1e-8)) * v\n                lp_yes_done = True\n\n    gradient_greedy = val_with_greedy - val_without_greedy\n    gradient_lp = upper_take - upper_no_take\n\n    # 核心指标计算\n    capacity_ratio = current_weight / (remaining_capacity + 1e-8)\n    avg_rem_density = np.mean(rem_densities) if n_rem > 0 else 0.0\n    density_advantage = current_density / (avg_rem_density + 1e-8)\n\n    # 自适应衰减权重：决策进度增加时，贪心权重递增（更保守）\n    progress = current_index / num_items\n    alpha_base = 0.6 * (1.0 - capacity_ratio) + 0.4 * np.tanh(density_advantage - 0.8)\n    decay = 0.3 * progress  # 后期增加贪心权重\n    alpha = np.clip(alpha_base + decay, 0.2, 0.9)\n    beta = 1.0 - alpha\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n\n    # 局部置信度：基于当前密度与剩余平均密度的偏离，使用sigmoid映射到[0.8, 1.2]\n    density_bias = np.tanh((current_density - avg_rem_density) / (avg_rem_density + 1e-8))\n    confidence = 1.0 + 0.2 * density_bias\n\n    # 自适应阈值：直接基于容量压力和密度优势动态调整\n    base_threshold = 0.08 * capacity_ratio * (2.0 - np.clip(density_advantage, 0.5, 2.0))\n    threshold = base_threshold * confidence\n\n    # 决策：融合梯度大于阈值则拿，否则不拿\n    return 1.0 if fused_gradient > threshold else 0.0",
+      "objective": 1.359375
+    },
+    {
+      "concept": "本启发式在“冲突权衡-机会成本-双模融合”框架基础上，通过引入**自适应衰减权重**和**局部置信度**进一步优化决策精度。核心改进包括：1) 动态权重中融入决策进度衰减项，使得决策后期更偏向贪心填充的保守策略，以降低容量紧张时的误判风险；2) 将全局分位数置信度替换为基于当前密度与剩余平均密度偏离的局部置信度，更精准地反映当前物品的相对优势；3) 精简阈值计算，移除冗余缩放因子，使决策直接基于融合梯度与动态阈值的比较，提升计算效率。整体保持O(n)单次扫描，无随机扰动，实现高效确定性的背包决策。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "自适应衰减权重",
+        "局部置信度",
+        "动态阈值",
+        "单次扫描优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 容量可行性剪枝\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / (current_weight + 1e-8)\n\n    # 剩余物品信息\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n\n    # 无后续物品时的基线决策\n    if n_rem == 0:\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-8)\n    sorted_idx = np.argsort(-rem_densities)\n\n    # 单次扫描：同时计算贪心填充和LP松弛上界\n    cap_greedy_no = remaining_capacity\n    val_without_greedy = 0.0\n    cap_greedy_yes = remaining_capacity - current_weight\n    val_with_greedy = current_value\n\n    cap_lp_no = remaining_capacity\n    upper_no_take = 0.0\n    cap_lp_yes = remaining_capacity - current_weight\n    upper_take = current_value\n    lp_no_done = False\n    lp_yes_done = False\n\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n\n        # 贪心填充\n        if w <= cap_greedy_no:\n            cap_greedy_no -= w\n            val_without_greedy += v\n        if w <= cap_greedy_yes:\n            cap_greedy_yes -= w\n            val_with_greedy += v\n\n        # LP松弛上界\n        if not lp_no_done:\n            if w <= cap_lp_no:\n                cap_lp_no -= w\n                upper_no_take += v\n            else:\n                upper_no_take += (cap_lp_no / (w + 1e-8)) * v\n                lp_no_done = True\n        if not lp_yes_done:\n            if w <= cap_lp_yes:\n                cap_lp_yes -= w\n                upper_take += v\n            else:\n                upper_take += (cap_lp_yes / (w + 1e-8)) * v\n                lp_yes_done = True\n\n    gradient_greedy = val_with_greedy - val_without_greedy\n    gradient_lp = upper_take - upper_no_take\n\n    # 核心指标计算\n    capacity_ratio = current_weight / (remaining_capacity + 1e-8)\n    avg_rem_density = np.mean(rem_densities) if n_rem > 0 else 0.0\n    density_advantage = current_density / (avg_rem_density + 1e-8)\n\n    # 自适应衰减权重：决策进度增加时，贪心权重递增（更保守）\n    progress = current_index / num_items\n    alpha_base = 0.6 * (1.0 - capacity_ratio) + 0.4 * np.tanh(density_advantage - 0.8)\n    decay = 0.3 * progress  # 后期增加贪心权重\n    alpha = np.clip(alpha_base + decay, 0.2, 0.9)\n    beta = 1.0 - alpha\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n\n    # 局部置信度：基于当前密度与剩余平均密度的偏离，使用sigmoid映射到[0.8, 1.2]\n    density_bias = np.tanh((current_density - avg_rem_density) / (avg_rem_density + 1e-8))\n    confidence = 1.0 + 0.2 * density_bias\n\n    # 自适应阈值：直接基于容量压力和密度优势动态调整\n    base_threshold = 0.08 * capacity_ratio * (2.0 - np.clip(density_advantage, 0.5, 2.0))\n    threshold = base_threshold * confidence\n\n    # 决策：融合梯度大于阈值则拿，否则不拿\n    return 1.0 if fused_gradient > threshold else 0.0",
+      "objective": 1.359375
+    },
+    {
+      "concept": "思想概念：融合两种启发式的优势，采用“双模评估-动态折中”机制。首先基于“机会成本+贪心填充”计算拿与不拿的预期价值差，作为基础决策梯度；同时引入“线性规划松弛上界+置信度调节”得到修正梯度。通过动态权重系数（依赖于容量弹性与物品价值分位）将两个梯度加权融合，形成综合评分。当评分超过自适应阈值时选择拿取，否则放弃。该设计平衡了前瞻性填充的保守性与LP松弛的激进性，并通过容量弹性调节决策偏向，避免单一模式的偏置。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "前瞻贪心填充",
+        "线性规划松弛上界",
+        "双模融合",
+        "动态权重调节",
+        "容量弹性自适应阈值",
+        "置信度调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n    \n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    \n    # 获取剩余物品索引\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n    \n    if n_rem == 0:\n        # 没有后续物品时，直接比较\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n    \n    # 提取剩余物品数据\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-6)\n    sorted_idx = np.argsort(-rem_densities)\n    \n    # ---------- 模式1：贪心填充（启发式1风格） ----------\n    # 不拿当前物品时的贪心填充\n    cap1 = remaining_capacity\n    val_without_greedy = 0.0\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap1:\n            cap1 -= w\n            val_without_greedy += v\n        else:\n            # 0/1背包不取部分\n            pass\n    \n    # 拿当前物品后的贪心填充\n    cap2 = remaining_capacity - current_weight\n    val_with_greedy = current_value\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap2:\n            cap2 -= w\n            val_with_greedy += v\n        else:\n            pass\n    \n    gradient_greedy = val_with_greedy - val_without_greedy  # 拿的净收益（贪心估计）\n    \n    # ---------- 模式2：LP松弛上界（启发式2风格） ----------\n    # 不拿当前物品的LP上界\n    cap3 = remaining_capacity\n    upper_no_take = 0.0\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap3:\n            cap3 -= w\n            upper_no_take += v\n        else:\n            upper_no_take += (cap3 / (w + 1e-6)) * v\n            break\n    \n    # 拿当前物品后的LP上界\n    cap4 = remaining_capacity - current_weight\n    upper_take = current_value\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap4:\n            cap4 -= w\n            upper_take += v\n        else:\n            upper_take += (cap4 / (w + 1e-6)) * v\n            break\n    \n    gradient_lp = upper_take - upper_no_take  # 拿的净收益（LP松弛估计）\n    \n    # ---------- 动态融合权重 ----------\n    # 基于容量弹性：当前物品重量占剩余容量的比例\n    capacity_ratio = current_weight / (remaining_capacity + 1e-6)\n    # 当容量紧张时更信任保守的贪心，容量充裕时更信任激进的LP\n    alpha = np.clip(1.0 - capacity_ratio, 0.2, 0.8)  # 贪心权重在0.2~0.8之间\n    beta = 1.0 - alpha  # LP权重\n    \n    # 融合梯度\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n    \n    # ---------- 置信度调节（基于价值分位） ----------\n    mean_val = np.mean(values)\n    std_val = np.std(values) + 1e-6\n    z_score = (current_value - mean_val) / std_val\n    # sigmoid映射到0.7~1.3\n    confidence = 1.0 + 0.3 * (1.0 / (1.0 + np.exp(-z_score)) - 0.5)\n    \n    # ---------- 自适应阈值 ----------\n    # 阈值与容量占用率正相关，占用越高越倾向于不拿\n    threshold = 0.0  # 基础阈值\n    threshold_mod = threshold * capacity_ratio * 0.5  # 额外惩罚\n    \n    # 决策\n    if fused_gradient > threshold_mod * confidence:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 1.390625
+    },
+    {
+      "concept": "基于积极经验中的冲突权衡、机会成本与多步前瞻，以及消极经验中避免的复杂矩阵和历史校正，新启发式将采用“机会成本-边际收益双模评估”框架。核心思路是：同时计算基于贪心填充的机会成本和基于线性规划松弛的边际收益，通过动态权重（由容量压力系数调节）融合两者，并引入价值分位数置信度进行微调。决策时，比较融合评分与一个自适应阈值（考虑密度压力和容量占用），选择价值更高的方向。该设计平衡了保守填充与激进松弛，精简了计算步骤，避免了参数冗余和随机扰动。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "边际收益",
+        "双模融合",
+        "动态权重",
+        "容量弹性阈值",
+        "分位数置信度"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 容量可行性剪枝\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / (current_weight + 1e-8)\n\n    # 剩余物品信息\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n\n    # 无后续物品时的决策\n    if n_rem == 0:\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-8)\n    sorted_idx = np.argsort(-rem_densities)\n\n    # ---------- 模式1：贪心填充（机会成本估计） ----------\n    # 不拿当前物品时的贪心填充\n    cap1 = remaining_capacity\n    val_without_greedy = 0.0\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap1:\n            cap1 -= w\n            val_without_greedy += v\n\n    # 拿当前物品后的贪心填充\n    cap2 = remaining_capacity - current_weight\n    val_with_greedy = current_value\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap2:\n            cap2 -= w\n            val_with_greedy += v\n\n    gradient_greedy = val_with_greedy - val_without_greedy  # 拿的净收益（贪心估计）\n\n    # ---------- 模式2：LP松弛上界（边际收益估计） ----------\n    # 不拿当前物品的LP上界\n    cap3 = remaining_capacity\n    upper_no_take = 0.0\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap3:\n            cap3 -= w\n            upper_no_take += v\n        else:\n            upper_no_take += (cap3 / (w + 1e-8)) * v\n            break\n\n    # 拿当前物品后的LP上界\n    cap4 = remaining_capacity - current_weight\n    upper_take = current_value\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap4:\n            cap4 -= w\n            upper_take += v\n        else:\n            upper_take += (cap4 / (w + 1e-8)) * v\n            break\n\n    gradient_lp = upper_take - upper_no_take  # 拿的净收益（LP松弛估计）\n\n    # ---------- 动态融合权重 ----------\n    # 容量压力系数：当前物品重量占剩余容量的比例\n    capacity_ratio = current_weight / (remaining_capacity + 1e-8)\n    # 容量紧张时更信任保守的贪心，宽松时更信任激进的LP\n    alpha = np.clip(1.0 - capacity_ratio, 0.2, 0.8)  # 贪心权重\n    beta = 1.0 - alpha  # LP权重\n\n    # 融合梯度\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n\n    # ---------- 置信度调节（基于价值分位数） ----------\n    sorted_all = np.sort(values)\n    rank = np.searchsorted(sorted_all, current_value, side='left')\n    quantile = rank / num_items\n    confidence = 0.8 + 0.4 * quantile  # 映射到0.8~1.2\n\n    # ---------- 自适应阈值 ----------\n    # 基于密度压力和容量占用\n    avg_rem_density = np.mean(rem_densities)\n    density_pressure = current_density / (avg_rem_density + 1e-8)\n    # 阈值与容量占用率正相关，与密度压力负相关\n    threshold = 0.1 * capacity_ratio * (2.0 - density_pressure) * confidence\n\n    # 决策：融合梯度超过阈值则拿，否则不拿\n    if fused_gradient > threshold * abs(current_value) * 0.1:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 1.40625
+    },
+    {
+      "concept": "本启发式基于“冲突权衡-机会成本-多步前瞻”框架，融合贪心填充与线性规划松弛双模评估，通过容量压力系数与密度优势比动态调节双模权重，形成融合梯度。引入价值分位数置信度、决策进度调节器与容量弹性阈值，平衡保守填充与激进松弛，精简冗余计算，去除历史依赖与随机扰动，实现高效确定性的单次扫描决策。在参数上，将动态权重计算中的tanh偏移量从1.0调整为0.8，以更敏感地响应密度优势；将基础阈值系数从0.1调整为0.08，降低整体决策门槛，提高对高性价比物品的接受率；同时将置信度映射范围从0.8~1.2调整为0.75~1.25，增强分位数对决策的影响力度。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "动态权重",
+        "容量弹性阈值",
+        "分位数置信度",
+        "决策进度调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 容量可行性剪枝\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / (current_weight + 1e-8)\n\n    # 剩余物品信息\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n\n    # 无后续物品时的基线决策\n    if n_rem == 0:\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-8)\n    sorted_idx = np.argsort(-rem_densities)\n\n    # ---------- 模式1：贪心填充（机会成本估计） ----------\n    cap1 = remaining_capacity\n    val_without_greedy = 0.0\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap1:\n            cap1 -= w\n            val_without_greedy += v\n\n    cap2 = remaining_capacity - current_weight\n    val_with_greedy = current_value\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap2:\n            cap2 -= w\n            val_with_greedy += v\n    gradient_greedy = val_with_greedy - val_without_greedy\n\n    # ---------- 模式2：LP松弛上界（边际收益估计） ----------\n    cap3 = remaining_capacity\n    upper_no_take = 0.0\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap3:\n            cap3 -= w\n            upper_no_take += v\n        else:\n            upper_no_take += (cap3 / (w + 1e-8)) * v\n            break\n\n    cap4 = remaining_capacity - current_weight\n    upper_take = current_value\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n        if w <= cap4:\n            cap4 -= w\n            upper_take += v\n        else:\n            upper_take += (cap4 / (w + 1e-8)) * v\n            break\n    gradient_lp = upper_take - upper_no_take\n\n    # ---------- 核心指标计算 ----------\n    capacity_ratio = current_weight / (remaining_capacity + 1e-8)\n    avg_rem_density = np.mean(rem_densities)\n    density_advantage = current_density / (avg_rem_density + 1e-8)\n\n    # 动态融合权重：容量紧张时更保守（偏向贪心），密度优势大时更激进（偏向LP）\n    # 调整tanh偏移量从1.0改为0.8，使对密度优势更敏感\n    alpha = np.clip(0.6 * (1.0 - capacity_ratio) + 0.4 * np.tanh(density_advantage - 0.8), 0.2, 0.8)\n    beta = 1.0 - alpha\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n\n    # 分位数置信度：映射范围从0.8~1.2调整为0.75~1.25，增强分位数影响\n    sorted_all = np.sort(values)\n    rank = np.searchsorted(sorted_all, current_value, side='left')\n    quantile = rank / num_items\n    confidence = 0.75 + 0.5 * quantile\n\n    # 决策进度调节器：随着决策进行，阈值逐渐提高（更保守）\n    progress = current_index / num_items\n    progress_factor = 1.0 + 0.5 * progress\n\n    # 自适应阈值：基础阈值系数从0.1调整为0.08，降低整体门槛\n    base_threshold = 0.08 * capacity_ratio * (2.0 - np.clip(density_advantage, 0.5, 2.0))\n    threshold = base_threshold * confidence * progress_factor * abs(current_value) * 0.1\n\n    # 决策\n    if fused_gradient > threshold:\n        return 1.0\n    else:\n        return 0.0",
+      "objective": 1.484375
+    },
+    {
+      "concept": "本启发式基于“冲突权衡-机会成本-多步前瞻”框架，融合贪心填充与线性规划松弛双模评估。核心改进在于：将动态融合权重中的tanh偏移量从1.0调整为0.8，使密度优势的灵敏度提升；将置信度映射范围从0.8~1.2扩展至0.75~1.25，增强分位数影响力；基础阈值系数从0.1降至0.08，降低整体决策门槛。同时精简了冗余的循环计算，将贪心填充与LP松弛合并为一个排序后的单次扫描，保持O(n)复杂度。决策时通过容量压力、密度优势、分位数置信度和进度调节器共同构建自适应阈值，实现确定性单次扫描。",
+      "feature": [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "动态权重",
+        "容量弹性阈值",
+        "分位数置信度",
+        "决策进度调节",
+        "单次扫描优化"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    # 容量可行性剪枝\n    if weights[current_index] > remaining_capacity:\n        return 0.0\n\n    current_weight = weights[current_index]\n    current_value = values[current_index]\n    current_density = current_value / (current_weight + 1e-8)\n\n    # 剩余物品信息\n    remaining_indices = list(range(current_index + 1, num_items))\n    n_rem = len(remaining_indices)\n\n    # 无后续物品时的基线决策\n    if n_rem == 0:\n        return 1.0 if current_weight <= remaining_capacity else 0.0\n\n    rem_weights = weights[remaining_indices]\n    rem_values = values[remaining_indices]\n    rem_densities = rem_values / (rem_weights + 1e-8)\n    sorted_idx = np.argsort(-rem_densities)\n\n    # 单次扫描：同时计算贪心填充和LP松弛上界\n    # 贪心填充（只取完整物品）\n    cap_greedy_no = remaining_capacity\n    val_without_greedy = 0.0\n    cap_greedy_yes = remaining_capacity - current_weight\n    val_with_greedy = current_value\n\n    # LP松弛（允许部分取）\n    cap_lp_no = remaining_capacity\n    upper_no_take = 0.0\n    cap_lp_yes = remaining_capacity - current_weight\n    upper_take = current_value\n    lp_no_done = False\n    lp_yes_done = False\n\n    for idx in sorted_idx:\n        w = rem_weights[idx]\n        v = rem_values[idx]\n\n        # 贪心填充\n        if w <= cap_greedy_no:\n            cap_greedy_no -= w\n            val_without_greedy += v\n        if w <= cap_greedy_yes:\n            cap_greedy_yes -= w\n            val_with_greedy += v\n\n        # LP松弛上界\n        if not lp_no_done:\n            if w <= cap_lp_no:\n                cap_lp_no -= w\n                upper_no_take += v\n            else:\n                upper_no_take += (cap_lp_no / (w + 1e-8)) * v\n                lp_no_done = True\n        if not lp_yes_done:\n            if w <= cap_lp_yes:\n                cap_lp_yes -= w\n                upper_take += v\n            else:\n                upper_take += (cap_lp_yes / (w + 1e-8)) * v\n                lp_yes_done = True\n\n    gradient_greedy = val_with_greedy - val_without_greedy\n    gradient_lp = upper_take - upper_no_take\n\n    # 核心指标计算\n    capacity_ratio = current_weight / (remaining_capacity + 1e-8)\n    avg_rem_density = np.mean(rem_densities)\n    density_advantage = current_density / (avg_rem_density + 1e-8)\n\n    # 动态融合权重：偏移量从1.0调整为0.8\n    alpha = np.clip(0.6 * (1.0 - capacity_ratio) + 0.4 * np.tanh(density_advantage - 0.8), 0.2, 0.8)\n    beta = 1.0 - alpha\n    fused_gradient = alpha * gradient_greedy + beta * gradient_lp\n\n    # 分位数置信度：映射范围从0.8~1.2调整为0.75~1.25\n    sorted_all = np.sort(values)\n    rank = np.searchsorted(sorted_all, current_value, side='left')\n    quantile = rank / num_items\n    confidence = 0.75 + 0.5 * quantile\n\n    # 决策进度调节器\n    progress = current_index / num_items\n    progress_factor = 1.0 + 0.5 * progress\n\n    # 自适应阈值：基础阈值系数从0.1调整为0.08\n    base_threshold = 0.08 * capacity_ratio * (2.0 - np.clip(density_advantage, 0.5, 2.0))\n    threshold = base_threshold * confidence * progress_factor * abs(current_value) * 0.1\n\n    # 决策\n    return 1.0 if fused_gradient > threshold else 0.0",
+      "objective": 1.484375
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "冲突权衡",
+        "机会成本",
+        "前瞻性填充"
+      ],
+      [
+        "冲突权衡",
+        "线性规划松弛上界",
+        "容量弹性调节",
+        "分位数置信度"
+      ],
+      [
+        "多步前瞻",
+        "动态规划剪枝",
+        "价值函数估计",
+        "置信度调节"
+      ],
+      [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "自适应衰减权重",
+        "局部置信度",
+        "动态阈值",
+        "单次扫描优化"
+      ],
+      [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "自适应衰减权重",
+        "局部置信度",
+        "动态阈值",
+        "单次扫描优化"
+      ],
+      [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "自适应衰减权重",
+        "局部置信度",
+        "动态阈值",
+        "单次扫描优化"
+      ]
+    ],
+    "negative_features": [
+      [
+        "快速剪枝",
+        "自适应阈值",
+        "联合优势比",
+        "容量互补性",
+        "历史偏差校正",
+        "单遍扫描"
+      ],
+      [
+        "快速剪枝",
+        "自适应阈值",
+        "联合优势比",
+        "容量互补性",
+        "历史偏差校正",
+        "单遍扫描"
+      ],
+      [
+        "局部梯度计算",
+        "全局平衡指数",
+        "边际替代率",
+        "动态阈值"
+      ],
+      [
+        "冲突权衡",
+        "机会成本",
+        "线性规划松弛上界",
+        "贪心填充",
+        "双模融合",
+        "动态权重",
+        "容量弹性阈值",
+        "分位数置信度",
+        "决策进度调节"
+      ],
+      [
+        "冲突权衡",
+        "多步前瞻",
+        "线性规划松弛上界",
+        "动态边际收益比",
+        "容量弹性概率决策",
+        "分位数置信度"
+      ],
+      [
+        "生态位竞争",
+        "资源稀缺度",
+        "生态位重叠度矩阵",
+        "自适应遗忘因子",
+        "非线性激活函数",
+        "容量紧张度模式切换"
+      ]
+    ]
+  }
+}

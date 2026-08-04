@@ -20,6 +20,89 @@ import numpy as np
 app = Flask(__name__)
 app.secret_key = 'nseh_secret_key_2026'
 
+# ── 语言支持（中/英）──────────────────────────────
+def get_lang():
+    """从 cookie 读取当前语言，默认中文"""
+    return 'en' if request.cookies.get('lang', 'zh') == 'en' else 'zh'
+
+# 后端接口消息中英对照
+LANG_MESSAGES = {
+    '请描述你的问题场景': 'Please describe your problem scenario',
+    '请为场景命名': 'Please name the scenario',
+    '场景名只能包含字母、数字和下划线，且必须以字母开头': 'Scenario name may only contain letters, digits and underscores, and must start with a letter',
+    '请先配置API Key': 'Please configure an API Key first',
+    '文件不存在': 'File does not exist',
+    '无效的种群文件格式': 'Invalid population file format',
+    '问题ID为空': 'Problem ID is empty',
+    '账号或密码错误，请重新输入': 'Incorrect account or password, please try again',
+    '登录过程中出错': 'An error occurred during login',
+    '账号和密码不能为空': 'Account and password cannot be empty',
+    '注册成功': 'Registration successful',
+    '账号已存在': 'Account already exists',
+    '注册失败': 'Registration failed',
+    '无权限': 'Forbidden',
+    'API Key 不能为空，请在 LLM 配置中填写': 'API Key cannot be empty, please fill it in the LLM configuration',
+    'BASE_URL 不能为空': 'BASE_URL cannot be empty',
+    'LLM Model 不能为空': 'LLM Model cannot be empty',
+    '问题目录不能为空': 'Problem directory cannot be empty',
+    '进化框架初始化失败，请检查问题配置和API Key': 'Evolution framework initialization failed, please check the problem config and API Key',
+    '进化框架初始化失败，请检查配置和API Key': 'Evolution framework initialization failed, please check the config and API Key',
+    '进化已在进行中，请勿重复启动': 'Evolution is already running, please do not start again',
+    '请先保存配置': 'Please save the config first',
+    '进化框架未初始化': 'Evolution framework is not initialized',
+}
+
+def _msg(zh_text):
+    """根据当前语言返回接口消息"""
+    if get_lang() == 'en':
+        return LANG_MESSAGES.get(zh_text, zh_text)
+    return zh_text
+
+# 禁用静态文件缓存（开发模式），避免浏览器 304 加载旧版 JS
+@app.after_request
+def add_cache_headers(response):
+    if response.content_type and ('text/css' in response.content_type or 'javascript' in response.content_type):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+# ── 全局 JSON 编码器（安全处理 np.inf/np.nan） ──
+import math as _math
+class _SafeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            if hasattr(obj, 'dtype'):  # numpy scalar
+                v = float(obj)
+                return None if _math.isinf(v) or _math.isnan(v) else v
+            if isinstance(obj, float) and (_math.isinf(obj) or _math.isnan(obj)):
+                return None
+            return super().default(obj)
+        except:
+            return None
+    def encode(self, o):
+        return super().encode(_sanitize_for_json(o))
+    def iterencode(self, o, _one_shot=False):
+        return super().iterencode(_sanitize_for_json(o), _one_shot)
+
+def _sanitize_for_json(obj):
+    """递归将 dict/list 中的 inf/nan 替换为 None"""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, float):
+        return None if _math.isinf(obj) or _math.isnan(obj) else obj
+    try:
+        v = float(obj)
+        if _math.isinf(v) or _math.isnan(v):
+            return None
+    except:
+        pass
+    return obj
+
+app.json_encoder = _SafeEncoder
+
 # ── 全局状态 ────────────────────────────────────────────
 evolution = None
 evolution_thread = None
@@ -156,6 +239,7 @@ LLM_PRESETS = {
     },
     "custom": {
         "name": "自定义模型",
+        "name_en": "Custom Model",
         "base_url": "",
         "provider": "Custom"
     }
@@ -177,6 +261,7 @@ default_config = {
     "fun_args": ["current_node", "destination_node", "unvisited_nodes", "distance_matrix"],
     "fun_return": ["next_node"],
     "fun_notes": "'current_node','destination_node', 'next_node', 和 'unvisited_nodes'是节点ID，distance_matrix是节点的距离矩阵。所有数据均为Numpy数组。",
+    "fun_notes_en": "'current_node', 'destination_node', 'next_node', and 'unvisited_nodes' are node IDs; distance_matrix is the distance matrix of nodes. All data are numpy arrays.",
     "ascend": True,
     "problem_path": "problems/tsp",
     "train_data": "train_data_tsp.pkl",
@@ -187,15 +272,30 @@ problem_path = default_config['problem_path']
 current_problem_name = 'TSP (旅行商问题)'
 current_problem_id = 'tsp'
 
+def localize_cfg(cfg, lang=None):
+    """返回指定语言的问题配置副本（name/problem/fun_notes）"""
+    if lang is None:
+        lang = get_lang()
+    if lang != 'en':
+        return cfg
+    out = dict(cfg)
+    out['name'] = cfg.get('name_en') or cfg.get('name') or cfg.get('problem_path', 'PROBLEM')
+    out['problem'] = cfg.get('problem_en') or cfg.get('problem')
+    out['fun_notes'] = cfg.get('fun_notes_en') or cfg.get('fun_notes')
+    return out
+
 # ── 预定义问题情景配置 ──────────────────────────────────
 PROBLEM_CONFIG_MAP = {
     "tsp": {
         "name": "TSP (旅行商问题)",
+        "name_en": "TSP (Travelling Salesman Problem)",
         "problem": "TSP问题即，给定一组节点的坐标，您需要找到访问每个节点一次并返回起始点的最短路径。可以通过从当前节点开始逐步选择下一个节点来解决此任务。",
+        "problem_en": "TSP problem: given the coordinates of a set of nodes, find the shortest route that visits each node exactly once and returns to the starting point. This task can be solved by iteratively selecting the next node from the current node.",
         "fun_name": "select_next_node",
         "fun_args": ["current_node", "destination_node", "unvisited_nodes", "distance_matrix"],
         "fun_return": ["next_node"],
         "fun_notes": "'current_node','destination_node', 'next_node', 和 'unvisited_nodes'是节点ID，distance_matrix是节点的距离矩阵。所有数据均为Numpy数组。",
+        "fun_notes_en": "'current_node', 'destination_node', 'next_node', and 'unvisited_nodes' are node IDs; distance_matrix is the distance matrix of nodes. All data are numpy arrays.",
         "ascend": True,
         "problem_path": "problems/tsp",
         "train_data": "train_data_tsp.pkl",
@@ -203,11 +303,14 @@ PROBLEM_CONFIG_MAP = {
     },
     "cvrp": {
         "name": "CVRP (容量受限车辆路径问题)",
+        "name_en": "CVRP (Capacitated Vehicle Routing Problem)",
         "problem": "CVRP（容量受限车辆路径问题）：给定一个仓库和多个客户节点，每辆车有容量限制，需要为所有客户配送货物，目标是最小化总行驶距离。可以通过从当前节点开始逐步选择下一个要服务的客户来构建路线。如果车辆装不下当前客户需求，返回-1表示返回仓库。",
+        "problem_en": "CVRP (Capacitated Vehicle Routing Problem): given a depot and multiple customer nodes, each vehicle has a capacity limit and must deliver goods to all customers, with the goal of minimizing total travel distance. Routes can be built by repeatedly selecting the next customer to serve from the current node. If the vehicle cannot fit the current customer's demand, return -1 to indicate returning to the depot.",
         "fun_name": "find_best_route",
         "fun_args": ["current_node", "remaining_demands", "vehicle_capacity", "current_load", "distance_matrix", "demand_list"],
         "fun_return": ["next_node"],
         "fun_notes": "'current_node'和'next_node'是节点ID。'remaining_demands'是布尔数组表示未服务节点。'vehicle_capacity'和'current_load'是标量。'distance_matrix'是距离矩阵。'demand_list'是各节点需求量。如果无合适节点则返回-1表示返回仓库。所有数据均为Numpy数组。",
+        "fun_notes_en": "'current_node' and 'next_node' are node IDs. 'remaining_demands' is a boolean array indicating unserved nodes. 'vehicle_capacity' and 'current_load' are scalars. 'distance_matrix' is the distance matrix. 'demand_list' is the demand of each node. Return -1 to indicate returning to the depot if no suitable node exists. All data are numpy arrays.",
         "ascend": True,
         "problem_path": "problems/cvrp",
         "train_data": "train_data_cvrp.pkl",
@@ -215,11 +318,14 @@ PROBLEM_CONFIG_MAP = {
     },
     "knapsack": {
         "name": "0/1 Knapsack (背包问题)",
+        "name_en": "0/1 Knapsack (Knapsack Problem)",
         "problem": "0/1背包问题：给定一组物品，每个物品有重量和价值，在背包容量限制内选择物品使总价值最大。需要通过逐个物品决策来构建解，每个物品选择拿(1)或不拿(0)。",
+        "problem_en": "0/1 Knapsack problem: given a set of items, each with a weight and a value, choose a subset of items within the knapsack capacity limit to maximize total value. The solution is built by deciding item by item whether to take it (1) or not (0).",
         "fun_name": "select_item",
         "fun_args": ["current_index", "remaining_capacity", "weights", "values", "num_items"],
         "fun_return": ["take_item"],
         "fun_notes": "'current_index'是当前考虑的物品索引。'remaining_capacity'是背包剩余容量。'weights'和'values'是所有物品的重量和价值数组。'num_items'是物品总数。返回1表示拿该物品，0表示不拿。所有数据均为Numpy数组。",
+        "fun_notes_en": "'current_index' is the index of the item currently considered. 'remaining_capacity' is the remaining capacity of the knapsack. 'weights' and 'values' are arrays of all items' weights and values. 'num_items' is the total number of items. Return 1 to take the item, 0 to skip it. All data are numpy arrays.",
         "ascend": True,
         "problem_path": "problems/knapsack",
         "train_data": "train_data_knapsack.pkl",
@@ -227,11 +333,14 @@ PROBLEM_CONFIG_MAP = {
     },
     "pfsp": {
         "name": "PFSP (置换流水车间调度)",
+        "name_en": "PFSP (Permutation Flow Shop Scheduling)",
         "problem": "PFSP（置换流水车间调度问题）：给定n个作业和m台机器，每个作业需按相同顺序在所有机器上加工，目标是最小化最大完工时间(makespan)。可以通过逐个选择未调度的作业来构建调度序列。",
+        "problem_en": "PFSP (Permutation Flow Shop Scheduling Problem): given n jobs and m machines, each job must be processed on all machines in the same order, with the goal of minimizing the makespan. The schedule can be built by selecting unscheduled jobs one by one.",
         "fun_name": "select_next_job",
         "fun_args": ["unscheduled_jobs", "current_schedule", "processing_times", "num_machines"],
         "fun_return": ["next_job"],
         "fun_notes": "'unscheduled_jobs'是未调度作业的索引数组。'current_schedule'是当前已调度的作业序列列表。'processing_times'是(n_jobs x num_machines)的加工时间矩阵。'num_machines'是机器数。返回要调度的下一个作业的索引。所有数据均为Numpy数组。",
+        "fun_notes_en": "'unscheduled_jobs' is an array of indices of unscheduled jobs. 'current_schedule' is a list of already scheduled jobs in order. 'processing_times' is an (n_jobs x num_machines) matrix of processing times. 'num_machines' is the number of machines. Return the index of the next job to schedule. All data are numpy arrays.",
         "ascend": True,
         "problem_path": "problems/pfsp",
         "train_data": "train_data_pfsp.pkl",
@@ -239,11 +348,14 @@ PROBLEM_CONFIG_MAP = {
     },
     "maxcut": {
         "name": "MaxCut (最大割问题)",
+        "name_en": "MaxCut (Maximum Cut Problem)",
         "problem": "MaxCut问题：给定一个无向带权图，需要将节点分成两组（用0和1标记），使得连接不同组的边的权重之和最大。可以通过逐个分配节点到某一侧来构建划分。",
+        "problem_en": "MaxCut problem: given an undirected weighted graph, partition the nodes into two groups (labeled 0 and 1) so that the total weight of edges crossing the groups is maximized. The partition is built by assigning nodes to one side one by one.",
         "fun_name": "assign_node",
         "fun_args": ["node_id", "unassigned_nodes", "adjacency_matrix", "current_partition"],
         "fun_return": ["side"],
         "fun_notes": "'node_id'是当前需要分配的节点索引。'unassigned_nodes'是布尔数组表示尚未分配的节点。'adjacency_matrix'是带权邻接矩阵。'current_partition'是当前部分分配(-1=未分配, 0/1=已分配侧)。返回0或1表示分配到哪一侧。所有数据均为Numpy数组。",
+        "fun_notes_en": "'node_id' is the index of the node currently being assigned. 'unassigned_nodes' is a boolean array of nodes not yet assigned. 'adjacency_matrix' is the weighted adjacency matrix. 'current_partition' is the current partial assignment (-1 = unassigned, 0/1 = assigned side). Return 0 or 1 to indicate which side to assign. All data are numpy arrays.",
         "ascend": True,
         "problem_path": "problems/maxcut",
         "train_data": "train_data_maxcut.pkl",
@@ -413,11 +525,15 @@ def migrate_csv_to_db(conn):
     print(f"[DB] CSV 数据已迁移至 SQLite ({DB_PATH})")
 
 
-def update_tag_stats(tags, is_positive=True):
+def update_tag_stats(tags, is_positive=True, cursor=None):
+    """更新标签统计。若传入 cursor 则复用该连接，不自动提交。"""
     if not tags:
         return
-    conn = get_db()
-    cursor = conn.cursor()
+    own_conn = None
+    if cursor is None:
+        conn = get_db()
+        cursor = conn.cursor()
+        own_conn = conn
     for tag in tags:
         cursor.execute("""
             INSERT INTO tag_stats (tag, positive_count, negative_count, last_seen)
@@ -427,18 +543,23 @@ def update_tag_stats(tags, is_positive=True):
                 negative_count = CASE WHEN ? THEN negative_count ELSE negative_count + 1 END,
                 last_seen = datetime('now','localtime')
         """, (tag, 1 if is_positive else 0, 1 if is_positive else 0, is_positive, not is_positive))
-    conn.commit()
-    conn.close()
+    if own_conn:
+        own_conn.commit()
+        own_conn.close()
 
 
-def update_tag_combo(tags, objective, is_positive):
+def update_tag_combo(tags, objective, is_positive, cursor=None):
+    """更新标签组合统计。若传入 cursor 则复用该连接，不自动提交。"""
     if not tags:
         return
     sorted_tags = sorted(tags)
     combo_hash = hashlib.md5(json.dumps(sorted_tags, ensure_ascii=False).encode()).hexdigest()
     tags_json = json.dumps(sorted_tags, ensure_ascii=False)
-    conn = get_db()
-    cursor = conn.cursor()
+    own_conn = None
+    if cursor is None:
+        conn = get_db()
+        cursor = conn.cursor()
+        own_conn = conn
     cursor.execute("SELECT id, avg_objective, sample_count FROM tag_combinations WHERE combo_hash = ?", (combo_hash,))
     row = cursor.fetchone()
     if row:
@@ -454,8 +575,9 @@ def update_tag_combo(tags, objective, is_positive):
             INSERT INTO tag_combinations (combo_hash, tags_json, avg_objective, sample_count, is_positive)
             VALUES (?, ?, ?, 1, ?)
         """, (combo_hash, tags_json, objective, 1 if is_positive else 0))
-    conn.commit()
-    conn.close()
+    if own_conn:
+        own_conn.commit()
+        own_conn.close()
 
 
 def load_user_info():
@@ -503,11 +625,13 @@ def get_problems():
     """获取可用问题情景列表"""
     try:
         problems = get_available_problems()
+        lang = get_lang()
         result = []
         for key, cfg in problems.items():
+            lcfg = localize_cfg(cfg, lang)
             result.append({
                 'id': key,
-                'name': cfg.get('name', key.upper()),
+                'name': lcfg.get('name', key.upper()),
                 'problem_path': cfg.get('problem_path', f'problems/{key}')
             })
         return jsonify({'problems': result})
@@ -520,11 +644,13 @@ def get_problems():
 def get_llm_presets():
     """获取LLM预设模型列表"""
     try:
+        lang = get_lang()
         result = []
         for key, cfg in LLM_PRESETS.items():
+            name = cfg.get('name_en') if lang == 'en' else cfg.get('name')
             result.append({
                 'id': key,
-                'name': cfg['name'],
+                'name': name or cfg['name'],
                 'base_url': cfg['base_url'],
                 'provider': cfg['provider']
             })
@@ -554,23 +680,26 @@ def generate_scenario():
         config = session.get('config') or default_config
 
         if not description:
-            return jsonify({'status': 'error', 'message': '请描述你的问题场景'}), 400
+            return jsonify({'status': 'error', 'message': _msg('请描述你的问题场景')}), 400
         if not scenario_name:
-            return jsonify({'status': 'error', 'message': '请为场景命名'}), 400
+            return jsonify({'status': 'error', 'message': _msg('请为场景命名')}), 400
 
         # 校验名称合法性（只允许字母、数字、下划线）
         import re as re_mod
         if not re_mod.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', scenario_name):
-            return jsonify({'status': 'error', 'message': '场景名只能包含字母、数字和下划线，且必须以字母开头'}), 400
+            return jsonify({'status': 'error', 'message': _msg('场景名只能包含字母、数字和下划线，且必须以字母开头')}), 400
 
         api_key = config.get('api_key', '').strip()
         base_url = config.get('base_url', '').strip()
         llm_model = config.get('llm_model', 'deepseek-chat').strip()
 
         if not api_key:
-            return jsonify({'status': 'error', 'message': '请先配置API Key'}), 400
+            return jsonify({'status': 'error', 'message': _msg('请先配置API Key')}), 400
         if not base_url:
             base_url = 'https://api.deepseek.com/v1'
+
+        lang = get_lang()
+        is_en = lang == 'en'
 
         # 创建场景目录
         problem_dir = Path(PROJECT_ROOT) / 'problems' / scenario_name
@@ -578,6 +707,11 @@ def generate_scenario():
         result_dir = problem_dir / 'result'
 
         if problem_dir.exists():
+            if is_en:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Scenario directory {scenario_name} already exists, please use another name'
+                }), 409
             return jsonify({
                 'status': 'error',
                 'message': f'场景目录 {scenario_name} 已存在，请换一个名称'
@@ -592,7 +726,36 @@ def generate_scenario():
         llm = llm_interface(api_key, base_url, llm_model, if_stream=False)
 
         # ── Phase 1: 生成问题配置 ──
-        config_prompt = f"""你是一个组合优化专家。根据用户的描述，生成一个JSON格式的问题配置。
+        if is_en:
+            config_prompt = f"""You are a combinatorial optimization expert. Based on the user's description, generate a JSON problem configuration.
+
+User description: {description}
+
+Output strictly in the following JSON format, without any other content:
+{{
+  "problem": "detailed problem description including goals, constraints, etc.",
+  "fun_name": "heuristic function name",
+  "fun_args": ["arg1", "arg2", ...],
+  "fun_return": ["return1"],
+  "fun_notes": "parameter descriptions and types. Note in particular: all data are numpy arrays.",
+  "ascend": true,
+  "has_capacity": false,
+  "has_demands": false,
+  "item_based": false
+}}
+
+Requirements:
+- fun_name should be a meaningful English function name
+- fun_args should include all parameters the function needs
+- fun_return should include the return values
+- fun_notes should explain the meaning and type of each parameter in detail
+- ascend: true means smaller fitness is better, false means larger is better
+- has_capacity: whether there is a capacity constraint
+- has_demands: whether there is a demand/value quantity
+- item_based: whether it is an item-by-item decision problem (knapsack-like)
+- Make sure the generated config conforms to the standard form of combinatorial optimization problems"""
+        else:
+            config_prompt = f"""你是一个组合优化专家。根据用户的描述，生成一个JSON格式的问题配置。
 
 用户描述：{description}
 
@@ -655,7 +818,23 @@ def generate_scenario():
         init_path.write_text('', encoding='utf-8')
 
         # ── Phase 3: 生成 heuristic.py (缺省启发式) ──
-        default_heuristic_prompt = f"""你是一个Python算法工程师。请为以下组合优化问题生成一个简单的缺省启发式算法。
+        if is_en:
+            default_heuristic_prompt = f"""You are a Python algorithm engineer. Generate a simple default heuristic algorithm for the following combinatorial optimization problem.
+
+Problem description: {parsed_config['problem']}
+
+Function signature:
+- Function name: {fun_name}
+- Arguments: {fun_args}
+- Return values: {fun_return}
+
+Note: {parsed_config.get('fun_notes', 'All data are numpy arrays.')}
+
+Generate a complete Python file with necessary imports and a full implementation of the function.
+The function should be simple but complete, serving as a reasonable baseline.
+Output only Python code wrapped in ```python markers."""
+        else:
+            default_heuristic_prompt = f"""你是一个Python算法工程师。请为以下组合优化问题生成一个简单的缺省启发式算法。
 
 问题描述：{parsed_config['problem']}
 
@@ -683,7 +862,46 @@ def generate_scenario():
         heuristic_path.write_text(f"# Default heuristic for {scenario_name}\n# Generated by NSEH Scenario Generator\n{default_algorithm}", encoding='utf-8')
 
         # ── Phase 4: 生成 generate_datasets.py ──
-        datagen_prompt = f"""你是一个Python算法工程师。请为以下组合优化问题生成数据集制备脚本。
+        if is_en:
+            datagen_prompt = f"""You are a Python algorithm engineer. Generate a dataset preparation script for the following combinatorial optimization problem.
+
+Problem description: {parsed_config['problem']}
+Function name: {fun_name}
+Arguments: {fun_args}
+Return values: {fun_return}
+
+Generate a complete Python script for generating training and test datasets.
+
+Script format:
+```python
+import numpy as np
+import pickle
+import os
+
+def generate_datasets():
+    # generate 64 training instances
+    # generate test instances (10 per size)
+    # compute and save reference solutions
+    # save as .pkl files
+    pass
+
+if __name__ == '__main__':
+    generate_datasets()
+```
+
+Requirements:
+- Save training data as train_data_{scenario_name}.pkl
+- Save training reference solutions as train_solution_{scenario_name}.pkl
+- Save test data as test_data_{scenario_name}.pkl
+- Save test reference solutions as test_solution_{scenario_name}.pkl
+- Datasets must be realistic and usable, with reasonable numbers of instances
+- Use np.random.seed(42) for reproducibility
+- Save all datasets in the datasets/ folder under the current directory
+- Generate a reference solution for each instance (greedy or approximate is fine)
+
+Output only Python code wrapped in ```python markers."""
+        else:
+            datagen_prompt = f"""你是一个Python算法工程师。请为以下组合优化问题生成数据集制备脚本。
 
 问题描述：{parsed_config['problem']}
 函数名: {fun_name}
@@ -731,8 +949,48 @@ if __name__ == '__main__':
             datagen_path.write_text(datagen_code, encoding='utf-8')
 
         # ── Phase 5: 生成 train_eval.py ──
-        fun_notes_val = parsed_config.get('fun_notes', '所有数据均为Numpy数组。')
-        train_eval_prompt = '''你是一个Python算法工程师。请为以下组合优化问题生成训练评估脚本。
+        fun_notes_val = parsed_config.get('fun_notes', '所有数据均为Numpy数组。' if not is_en else 'All data are numpy arrays.')
+        if is_en:
+            train_eval_prompt = '''You are a Python algorithm engineer. Generate a training evaluation script for the following combinatorial optimization problem.
+
+Problem description: ''' + str(parsed_config['problem']) + '''
+Function name: ''' + fun_name + '''
+Arguments: ''' + json_mod.dumps(fun_args) + '''
+Return values: ''' + json_mod.dumps(fun_return) + '''
+
+Generate a complete Python script that exports a function heuristic_solve_dynamic.
+
+Interface definition:
+def heuristic_solve_dynamic(train_data_path, train_solution_path, algorithm_str, fun_name):
+    # Args:
+    #     train_data_path: path to the training data .pkl file
+    #     train_solution_path: path to the reference solution .pkl file
+    #     algorithm_str: Python source code of the heuristic algorithm
+    #     fun_name: the function name to execute
+    # Returns:
+    #     float: fitness value (deviation from the reference solution, smaller is better)
+    # 1. Load training data
+    # 2. Execute the function defined in algorithm_str
+    # 3. For each training instance, solve it with the function
+    # 4. Compare with the reference solution and compute fitness (mean relative deviation)
+    # 5. Return the fitness value
+
+Important notes:
+- algorithm_str is the source code of a Python function, compile and execute it dynamically
+- Use exec() to compile, then get the function via locals()
+- Training data is a list; each element is an instance
+- Reference solutions is a list; each element is the reference value of the corresponding instance
+- Fitness = mean(algorithm_solution / reference_solution - 1) * 100, i.e. mean relative deviation percentage
+- If the algorithm raises an exception, return np.inf
+- If the problem has a capacity constraint and has_capacity=True, check whether capacity is exceeded
+
+Note:
+''' + fun_notes_val + '''
+
+Output only the complete Python code wrapped in ```python markers.
+The code must include all necessary import statements.'''
+        else:
+            train_eval_prompt = '''你是一个Python算法工程师。请为以下组合优化问题生成训练评估脚本。
 
 问题描述：''' + str(parsed_config['problem']) + '''
 函数名: ''' + fun_name + '''
@@ -902,7 +1160,8 @@ def heuristic_solve_static(test_data_path, algorithm_str, fun_name):
 
         return jsonify({
             'status': 'success',
-            'message': '场景 ' + scenario_name + ' 创建成功！请在设置页面选择并配置',
+            'message': (f'Scenario {scenario_name} created successfully! Select and configure it in the settings page'
+                        if is_en else f'场景 {scenario_name} 创建成功！请在设置页面选择并配置'),
             'scenario': {
                 'id': scenario_name,
                 'name': scenario_name_display,
@@ -1027,14 +1286,14 @@ def load_population():
         data = request.json
         filepath = data.get('path', '')
         if not filepath or not os.path.exists(filepath):
-            return jsonify({'status': 'error', 'message': '文件不存在'}), 404
+            return jsonify({'status': 'error', 'message': _msg('文件不存在')}), 404
 
         with open(filepath, 'r', encoding='utf-8') as f:
             pop_data = json.load(f)
 
         # 验证数据格式
         if 'heuristics' not in pop_data or 'memory' not in pop_data:
-            return jsonify({'status': 'error', 'message': '无效的种群文件格式'}), 400
+            return jsonify({'status': 'error', 'message': _msg('无效的种群文件格式')}), 400
 
         # 提取代数和日期
         fname = os.path.basename(filepath)
@@ -1049,9 +1308,14 @@ def load_population():
         pos_count = len(pop_data['memory'].get('positive_features', []))
         neg_count = len(pop_data['memory'].get('negative_features', []))
 
+        if get_lang() == 'en':
+            load_msg = f'Loaded population: {heuristic_count} heuristics, {pos_count} positive features, {neg_count} negative features'
+        else:
+            load_msg = f'已加载种群：{heuristic_count}个启发式，{pos_count}条积极特征，{neg_count}条消极特征'
+
         return jsonify({
             'status': 'success',
-            'message': f'已加载种群：{heuristic_count}个启发式，{pos_count}条积极特征，{neg_count}条消极特征',
+            'message': load_msg,
             'generation': generation,
             'heuristic_count': heuristic_count,
             'memory_summary': {
@@ -1084,15 +1348,15 @@ def get_problem_config():
         data = request.json
         problem_id = data.get('problem_id', 'tsp')
         if not problem_id:
-            return jsonify({'status': 'error', 'message': '问题ID为空'}), 400
+            return jsonify({'status': 'error', 'message': _msg('问题ID为空')}), 400
         problems = get_available_problems()
         if problem_id in problems:
-            cfg = problems[problem_id]
+            cfg = localize_cfg(problems[problem_id])
             current_problem_name = cfg.get('name', problem_id.upper())
             current_problem_id = problem_id
             return jsonify({'status': 'success', 'config': cfg, 'problem_name': current_problem_name})
         else:
-            return jsonify({'status': 'error', 'message': f'未知问题: {problem_id}'}), 404
+            return jsonify({'status': 'error', 'message': _msg(f'未知问题: {problem_id}')}), 404
     except Exception as e:
         print(f"获取问题配置失败: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -1126,10 +1390,12 @@ def user_login():
             user_id = session['user_id']
             user_best_score = session['user_best_score']
             return jsonify({'status': 'success', 'role': session['user_role']})
+        if get_lang() == 'en':
+            return jsonify({'status': 'error', 'message': 'Incorrect account or password, please try again'}), 401
         return jsonify({'status': 'error', 'message': '账号或密码错误，请重新输入'}), 401
     except Exception as e:
         print(f"登录错误: {e}")
-        return jsonify({'status': 'error', 'message': '登录过程中出错'}), 500
+        return jsonify({'status': 'error', 'message': _msg('登录过程中出错')}), 500
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -1151,20 +1417,20 @@ def user_register():
         pwd = data.get('password', '').strip()
         uname = data.get('userName', '').strip() or uid
         if not uid or not pwd:
-            return jsonify({'status': 'error', 'message': '账号和密码不能为空'}), 400
+            return jsonify({'status': 'error', 'message': _msg('账号和密码不能为空')}), 400
         conn = get_db()
         cursor = conn.cursor()
         try:
             cursor.execute("INSERT INTO users (user_name, user_id, password) VALUES (?, ?, ?)", (uname, uid, pwd))
             conn.commit()
             conn.close()
-            return jsonify({'status': 'success', 'message': '注册成功'})
+            return jsonify({'status': 'success', 'message': _msg('注册成功')})
         except sqlite3.IntegrityError:
             conn.close()
-            return jsonify({'status': 'error', 'message': '账号已存在'}), 409
+            return jsonify({'status': 'error', 'message': _msg('账号已存在')}), 409
     except Exception as e:
         print(f"注册错误: {e}")
-        return jsonify({'status': 'error', 'message': '注册失败'}), 500
+        return jsonify({'status': 'error', 'message': _msg('注册失败')}), 500
 
 
 @app.route('/')
@@ -1182,35 +1448,35 @@ def index():
             user_best_score = None
     else:
         user_best_score = None
-    return render_template('NSEH_main.html', config=default_config, page='setting', user_role=session.get('user_role', 'user'))
+    return render_template('NSEH_main.html', config=localize_cfg(default_config), page='setting', user_role=session.get('user_role', 'user'), lang=get_lang())
 
 
 @app.route('/login')
 def login():
     session.clear()
-    return render_template('NSEH_login.html')
+    return render_template('NSEH_login.html', lang=get_lang())
 
 
 @app.route('/evolution')
 def evolution_page():
-    return render_template('NSEH_main.html', config=default_config, page='evolution', user_role=session.get('user_role', 'user'))
+    return render_template('NSEH_main.html', config=localize_cfg(default_config), page='evolution', user_role=session.get('user_role', 'user'), lang=get_lang())
 
 
 @app.route('/results')
 def results_page():
-    return render_template('NSEH_main.html', config=default_config, page='results', user_role=session.get('user_role', 'user'))
+    return render_template('NSEH_main.html', config=localize_cfg(default_config), page='results', user_role=session.get('user_role', 'user'), lang=get_lang())
 
 
 @app.route('/rank')
 def rank():
-    return render_template('NSEH_rank.html')
+    return render_template('NSEH_rank.html', lang=get_lang())
 
 
 @app.route('/api/admin/users', methods=['GET'])
 def admin_get_users():
     """管理员：获取所有用户及其实验记录"""
     if session.get('user_role') != 'admin':
-        return jsonify({'status': 'error', 'message': '无权限'}), 403
+        return jsonify({'status': 'error', 'message': _msg('无权限')}), 403
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -1254,32 +1520,38 @@ def save_config():
         for key in ('population_capacity', 'num_generations', 'num_mutation', 'num_hybridization', 'num_reflection'):
             val = config.get(key)
             if not isinstance(val, int) or val < 0:
+                if get_lang() == 'en':
+                    return jsonify({'status': 'error', 'message': f'{key} must be a non-negative integer'}), 400
                 return jsonify({'status': 'error', 'message': f'{key} 需为非负整数'}), 400
 
         api_key = config.get('api_key', '').strip()
         base_url = config.get('base_url', '').strip()
         llm_model = config.get('llm_model', '').strip()
         if not api_key:
-            return jsonify({'status': 'error', 'message': 'API Key 不能为空，请在 LLM 配置中填写'}), 400
+            return jsonify({'status': 'error', 'message': _msg('API Key 不能为空，请在 LLM 配置中填写')}), 400
         if not base_url:
-            return jsonify({'status': 'error', 'message': 'BASE_URL 不能为空'}), 400
+            return jsonify({'status': 'error', 'message': _msg('BASE_URL 不能为空')}), 400
         if not llm_model:
-            return jsonify({'status': 'error', 'message': 'LLM Model 不能为空'}), 400
+            return jsonify({'status': 'error', 'message': _msg('LLM Model 不能为空')}), 400
 
         problem_path_val = config.get('problem_path', '').strip()
         if not problem_path_val:
-            return jsonify({'status': 'error', 'message': '问题目录不能为空'}), 400
+            return jsonify({'status': 'error', 'message': _msg('问题目录不能为空')}), 400
         if not (PROJECT_ROOT / problem_path_val).exists():
+            if get_lang() == 'en':
+                return jsonify({'status': 'error', 'message': f'Problem directory does not exist: {problem_path_val}'}), 400
             return jsonify({'status': 'error', 'message': f'问题目录不存在: {problem_path_val}'}), 400
 
         session['config'] = config
         save_cached_config(config)
-        evolution = init_evolution(config)
+        evolution = init_evolution(config, lang=get_lang())
         if evolution is None:
-            return jsonify({'status': 'error', 'message': '进化框架初始化失败，请检查问题配置和API Key'}), 500
+            return jsonify({'status': 'error', 'message': _msg('进化框架初始化失败，请检查问题配置和API Key')}), 500
         return jsonify({'status': 'success'})
     except Exception as e:
         print(f"【报错】配置保存失败\nError: {e}")
+        if get_lang() == 'en':
+            return jsonify({'status': 'error', 'message': f'Failed to save config: {str(e)}'}), 500
         return jsonify({'status': 'error', 'message': f'配置保存失败: {str(e)}'}), 500
 
 
@@ -1290,7 +1562,7 @@ def start_evolution():
     try:
         with evolution_lock:
             if evolution_thread is not None and evolution_thread.is_alive():
-                return jsonify({'status': 'error', 'message': '进化已在进行中，请勿重复启动'}), 400
+                return jsonify({'status': 'error', 'message': _msg('进化已在进行中，请勿重复启动')}), 400
 
             if evolution_thread is not None and not evolution_thread.is_alive():
                 # 清理已结束的线程
@@ -1304,10 +1576,10 @@ def start_evolution():
             if evolution is None:
                 config = session.get('config')
                 if not config:
-                    return jsonify({'status': 'error', 'message': '请先保存配置'}), 400
-                evolution = init_evolution(config)
+                    return jsonify({'status': 'error', 'message': _msg('请先保存配置')}), 400
+                evolution = init_evolution(config, lang=get_lang())
                 if evolution is None:
-                    return jsonify({'status': 'error', 'message': '进化框架初始化失败，请检查配置和API Key'}), 500
+                    return jsonify({'status': 'error', 'message': _msg('进化框架初始化失败，请检查配置和API Key')}), 500
 
             evolution_thread = threading.Thread(target=run_evolution, daemon=True)
             evolution_thread.start()
@@ -1317,6 +1589,8 @@ def start_evolution():
         print(f"启动进化失败: {e}")
         import traceback
         traceback.print_exc()
+        if get_lang() == 'en':
+            return jsonify({'status': 'error', 'message': f'Failed to start: {str(e)}'}), 500
         return jsonify({'status': 'error', 'message': f'启动失败: {str(e)}'}), 500
 
 
@@ -1362,8 +1636,10 @@ def stop_evolution():
 @app.route('/api/get_population_data', methods=['GET'])
 def get_population_data():
     try:
-        return jsonify({'population_data': population_data, 'current_population_index': current_population_index})
+        result = jsonify({'population_data': population_data, 'current_population_index': current_population_index})
+        return result
     except Exception as e:
+        print(f"[get_population_data] 出错: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -1412,7 +1688,7 @@ def open_results_directory():
 def get_prompt_template():
     try:
         if evolution is None or evolution.generator is None:
-            return jsonify({'status': 'error', 'message': '进化框架未初始化'}), 400
+            return jsonify({'status': 'error', 'message': _msg('进化框架未初始化')}), 400
         pt = evolution.generator.prompt_template
         r1, r2, r3, r4, r5 = pt.altprompt_get()
         return jsonify({
@@ -1430,7 +1706,7 @@ def get_prompt_template():
 def update_prompt_template():
     try:
         if evolution is None or evolution.generator is None:
-            return jsonify({'status': 'error', 'message': '进化框架未初始化'}), 400
+            return jsonify({'status': 'error', 'message': _msg('进化框架未初始化')}), 400
         data = request.json
         evolution.generator.prompt_template.altprompt_set(
             data.get('fun_requirement'),
@@ -1510,7 +1786,7 @@ def get_experiment_history():
 #  内部函数
 # ════════════════════════════════════════════════════════
 
-def init_evolution(config):
+def init_evolution(config, lang='zh'):
     global problem_path
     try:
         problem_path = config['problem_path']
@@ -1527,7 +1803,8 @@ def init_evolution(config):
             fun_name=config['fun_name'],
             fun_args=config['fun_args'],
             fun_return=config['fun_return'],
-            fun_notes=config['fun_notes']
+            fun_notes=config['fun_notes'],
+            lang=lang
         )
         evo = EvolutionFramework(
             problem_path=problem_path,
@@ -1552,37 +1829,60 @@ def update_user_best_score():
     global user_id, user_best_score
     if not user_id or user_best_score is None:
         return
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT best_score FROM users WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        update_needed = False
-        if row is None:
-            update_needed = True
-        else:
-            current = row['best_score']
-            if current is None:
-                update_needed = True
-            else:
-                try:
-                    ubs = float(user_best_score)
-                    if (evolution and evolution.ascend and ubs < current) or \
-                       (evolution and not evolution.ascend and ubs > current):
+    for _retry in range(5):
+        try:
+            with db_lock:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT best_score FROM users WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                update_needed = False
+                if row is None:
+                    update_needed = True
+                else:
+                    current = row['best_score']
+                    if current is None:
                         update_needed = True
-                except (ValueError, TypeError):
-                    pass
-        if update_needed:
-            cursor.execute(
-                "UPDATE users SET best_score = ?, updated_at = datetime('now','localtime') WHERE user_id = ?",
-                (float(user_best_score), user_id)
-            )
-            conn.commit()
-            print(f"用户 {user_id} 最佳适应度更新为 {user_best_score}")
-        conn.close()
-    except Exception as e:
-        print(f"更新最佳适应度时出错: {e}")
+                    else:
+                        try:
+                            ubs = float(user_best_score)
+                            if (evolution and evolution.ascend and ubs < current) or \
+                               (evolution and not evolution.ascend and ubs > current):
+                                update_needed = True
+                        except (ValueError, TypeError):
+                            pass
+                if update_needed:
+                    cursor.execute(
+                        "UPDATE users SET best_score = ?, updated_at = datetime('now','localtime') WHERE user_id = ?",
+                        (float(user_best_score), user_id)
+                    )
+                    conn.commit()
+                    print(f"用户 {user_id} 最佳适应度更新为 {user_best_score}")
+                conn.close()
+            return
+        except Exception as e:
+            err_msg = str(e)
+            if 'database is locked' in err_msg or 'locked' in err_msg:
+                if _retry < 4:
+                    time.sleep(0.5 * (_retry + 1))
+                    continue
+            print(f"更新最佳适应度时出错: {e}")
+            return
 
+
+# ── JSON 安全转换 ────────────────────────────────
+def _safe_obj(val):
+    """将 np.inf / float('inf') / None 等不安全值转为 None，确保 JSON 序列化安全"""
+    if val is None:
+        return None
+    try:
+        v = float(val)
+        import math
+        if math.isinf(v) or math.isnan(v):
+            return None
+        return v
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 def update_population_data():
     global evolution, population_data, current_population_index, user_best_score
@@ -1607,7 +1907,7 @@ def update_population_data():
                 'concept': h['concept'],
                 'feature': feat_display,
                 'algorithm': h['algorithm'],
-                'objective': h['objective'],
+                'objective': _safe_obj(h['objective']),
                 'tags': h.get('feature', []) if isinstance(h.get('feature', []), list) else []
             }
 
@@ -1629,44 +1929,59 @@ def update_population_data():
         app.config['population_data'] = population_data
         app.config['current_population_index'] = current_population_index
 
-        # 记录快照
-        try:
-            conn = get_db()
-            cursor = conn.cursor()
-            gen_idx = population_data[current_population_index]['index']
-            status = population_data[current_population_index].get('status', '')
-            best_obj = population_data[current_population_index].get('best_objective')
-            if best_obj == 'null' or best_obj is None:
-                best_obj = None
-            cursor.execute("""
-                SELECT id FROM experiments WHERE user_id = ? AND status = 'running'
-                ORDER BY id DESC LIMIT 1
-            """, (user_id or 'anonymous',))
-            exp_row = cursor.fetchone()
-            if not exp_row:
-                cursor.execute("""
-                    INSERT INTO experiments (user_id, config_json, status) VALUES (?, '{}', 'running')
-                """, (user_id or 'anonymous',))
-                exp_id = cursor.lastrowid
-            else:
-                exp_id = exp_row['id']
-            cursor.execute("""
-                INSERT INTO population_snapshots (experiment_id, generation, status, best_objective, snapshot_json)
-                VALUES (?, ?, ?, ?, ?)
-            """, (exp_id, gen_idx, status, best_obj,
-                  json.dumps(population_data[current_population_index], ensure_ascii=False, default=str)))
-            for h in evolution.population['heuristics']:
-                tags = h.get('feature', [])
-                if isinstance(tags, list) and tags:
-                    idx_pos = h.get('index', 1)
-                    is_pos = idx_pos <= evolution.num_reflection
-                    update_tag_stats(tags, is_pos)
-                    if h['objective'] != np.inf:
-                        update_tag_combo(tags, float(h['objective']), is_pos)
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"[DB] 记录快照时出错: {e}")
+        # 记录快照（使用重试 + 互斥锁防 SQLite 并发写冲突）
+        conn = None
+        for _retry in range(5):
+            try:
+                with db_lock:
+                    conn = get_db()
+                    cursor = conn.cursor()
+                    gen_idx = population_data[current_population_index]['index']
+                    status = population_data[current_population_index].get('status', '')
+                    best_obj = population_data[current_population_index].get('best_objective')
+                    if best_obj == 'null' or best_obj is None:
+                        best_obj = None
+                    cursor.execute("""
+                        SELECT id FROM experiments WHERE user_id = ? AND status = 'running'
+                        ORDER BY id DESC LIMIT 1
+                    """, (user_id or 'anonymous',))
+                    exp_row = cursor.fetchone()
+                    if not exp_row:
+                        cursor.execute("""
+                            INSERT INTO experiments (user_id, config_json, status) VALUES (?, '{}', 'running')
+                        """, (user_id or 'anonymous',))
+                        exp_id = cursor.lastrowid
+                    else:
+                        exp_id = exp_row['id']
+                    cursor.execute("""
+                        INSERT INTO population_snapshots (experiment_id, generation, status, best_objective, snapshot_json)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (exp_id, gen_idx, status, best_obj,
+                          json.dumps(population_data[current_population_index], ensure_ascii=False, default=str)))
+                    for h in evolution.population['heuristics']:
+                        tags = h.get('feature', [])
+                        if isinstance(tags, list) and tags:
+                            idx_pos = h.get('index', 1)
+                            is_pos = idx_pos <= evolution.num_reflection
+                            update_tag_stats(tags, is_pos, cursor=cursor)
+                            if h['objective'] != np.inf:
+                                update_tag_combo(tags, float(h['objective']), is_pos, cursor=cursor)
+                    conn.commit()
+                    conn.close()
+                    conn = None
+                break  # success
+            except Exception as e:
+                if conn:
+                    try: conn.close()
+                    except: pass
+                    conn = None
+                err_msg = str(e)
+                if 'database is locked' in err_msg or 'locked' in err_msg:
+                    if _retry < 4:
+                        time.sleep(0.5 * (_retry + 1))
+                        continue
+                print(f"[DB] 记录快照时出错: {e}")
+                break
     except Exception as e:
         print(f"更新种群数据时出错: {e}")
 
@@ -1683,7 +1998,7 @@ def EvoFrame_initialize_population():
             'index': 0,
             'title': '初始化种群',
             'status': '正在生成',
-            'best_objective': 'null',
+            'best_objective': None,
             'memory': {
                 'positive_features': evolution.population['memory']['positive_features'],
                 'negative_features': evolution.population['memory']['negative_features']
@@ -1784,7 +2099,7 @@ def EvoFrame_single_generation():
         'index': current_population_index,
         'title': f'第{current_population_index}代种群',
         'status': '开始生成',
-        'best_objective': 'null',
+        'best_objective': None,
         'memory': {'positive_features': [], 'negative_features': []},
         'heuristics': []
     }
@@ -1880,7 +2195,7 @@ def run_evolution():
             'index': start_gen,
             'title': f'续训起点 (第{start_gen}代)',
             'status': '已加载',
-            'best_objective': evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else 'null',
+            'best_objective': _safe_obj(evolution.population['heuristics'][0]['objective']) if evolution.population['heuristics'] else None,
             'memory': {
                 'positive_features': evolution.population['memory'].get('positive_features', []),
                 'negative_features': evolution.population['memory'].get('negative_features', [])
@@ -1895,7 +2210,7 @@ def run_evolution():
                 'concept': h['concept'],
                 'feature': feat_display,
                 'algorithm': h['algorithm'],
-                'objective': h['objective'],
+                'objective': _safe_obj(h['objective']),
                 'tags': feat if isinstance(feat, list) else []
             })
         population_data.append(loaded_pop)
@@ -1959,19 +2274,28 @@ def run_evolution():
         evolution_completed = True
         app.config['evolution_completed'] = True
         update_user_best_score()
-        try:
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE experiments SET end_time = datetime('now','localtime'), status = 'completed',
-                    best_objective = ?
-                WHERE user_id = ? AND status = 'running'
-            """, (evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else None,
-                  user_id or 'anonymous'))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"[DB] 更新实验状态出错: {e}")
+        for _retry in range(5):
+            try:
+                with db_lock:
+                    conn = get_db()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE experiments SET end_time = datetime('now','localtime'), status = 'completed',
+                            best_objective = ?
+                        WHERE user_id = ? AND status = 'running'
+                    """, (evolution.population['heuristics'][0]['objective'] if evolution.population['heuristics'] else None,
+                          user_id or 'anonymous'))
+                    conn.commit()
+                    conn.close()
+                break
+            except Exception as e:
+                err_msg = str(e)
+                if 'database is locked' in err_msg or 'locked' in err_msg:
+                    if _retry < 4:
+                        time.sleep(0.5 * (_retry + 1))
+                        continue
+                print(f"[DB] 更新实验状态出错: {e}")
+                break
     else:
         print("[进化] 被终止或超时")
         evolution_completed = False

@@ -6,6 +6,8 @@ let population_data = [];
 let lastScrollTime = 0;
 const SCROLL_INTERVAL = 15000;
 let evolutionTimer = null;
+let pollingTimers = {};
+let _featureOpenState = {};
 
 // ── Toast 通知（堆叠版）───────────────────
 const toasts = new Set();
@@ -72,14 +74,14 @@ function openAdminPanel() {
   const modal = document.getElementById('admin-modal');
   if (!modal) return;
   modal.style.display = 'flex';
-  document.getElementById('admin-content').innerHTML = '<p style="text-align:center;color:var(--text-secondary);">加载用户数据...</p>';
+  document.getElementById('admin-content').innerHTML = '<p style="text-align:center;color:var(--text-secondary);">' + T('t.loadingUsers') + '</p>';
 
   fetch('/api/admin/users')
     .then(r => r.json())
     .then(d => {
       if (d.status !== 'success') throw new Error(d.message);
-      let html = '<h3 style="margin-bottom:12px;">用户列表</h3>';
-      html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;"><tr style="background:var(--bg-secondary);"><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">ID</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">名称</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">账号</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">角色</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">最佳</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">实验数</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">注册</th></tr>';
+      let html = '<h3 style="margin-bottom:12px;">' + T('t.userList') + '</h3>';
+      html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;"><tr style="background:var(--bg-secondary);"><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">ID</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colName') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colAccount') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colRole') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colBest') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colExpCount') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colRegistered') + '</th></tr>';
       d.users.forEach(u => {
         html += '<tr><td style="padding:8px;border-bottom:1px solid var(--border);">' + u.id + '</td>';
         html += '<td style="padding:8px;border-bottom:1px solid var(--border);">' + escHtml(u.user_name) + '</td>';
@@ -91,8 +93,8 @@ function openAdminPanel() {
       });
       html += '</table>';
 
-      html += '<h3 style="margin-bottom:12px;">实验记录（最近100条）</h3>';
-      html += '<table style="width:100%;border-collapse:collapse;"><tr style="background:var(--bg-secondary);"><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">ID</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">用户</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">开始</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">结束</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">状态</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">最佳值</th></tr>';
+      html += '<h3 style="margin-bottom:12px;">' + T('t.expRecords') + '</h3>';
+      html += '<table style="width:100%;border-collapse:collapse;"><tr style="background:var(--bg-secondary);"><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">ID</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colUser') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colStart') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colEnd') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colStatus') + '</th><th style="padding:8px;text-align:left;border-bottom:1px solid var(--border);">' + T('t.colBestVal') + '</th></tr>';
       d.experiments.forEach(e => {
         html += '<tr><td style="padding:8px;border-bottom:1px solid var(--border);">' + e.id + '</td>';
         html += '<td style="padding:8px;border-bottom:1px solid var(--border);">' + escHtml(e.user_name) + '</td>';
@@ -105,7 +107,7 @@ function openAdminPanel() {
       document.getElementById('admin-content').innerHTML = html;
     })
     .catch(err => {
-      document.getElementById('admin-content').innerHTML = '<p style="text-align:center;color:var(--danger);">加载失败: ' + escHtml(err.message) + '</p>';
+      document.getElementById('admin-content').innerHTML = '<p style="text-align:center;color:var(--danger);">' + T('t.loadFailed') + escHtml(err.message) + '</p>';
     });
 }
 
@@ -133,10 +135,17 @@ if (saved) {
   document.documentElement.setAttribute('data-theme', saved);
   const btn = document.getElementById('theme-toggle');
   if (btn) {
-    btn.querySelector('.theme-sun').style.display = saved === 'light' ? 'none' : '';
-    btn.querySelector('.theme-moon').style.display = saved === 'light' ? '' : 'none';
+    const sun = btn.querySelector('.theme-sun');
+    const moon = btn.querySelector('.theme-moon');
+    if (sun) sun.style.display = saved === 'light' ? 'none' : '';
+    if (moon) moon.style.display = saved === 'light' ? '' : 'none';
   }
 }
+
+// 关闭详情面板（防止初始状态下右侧空列占用空间）
+closeDetailsCard();
+// 初始状态：种群区域占满宽度
+document.querySelector(".evolution-layout")?.classList.add("details-collapsed");
 
 // 尝试恢复上次配置
 restoreCachedConfig();
@@ -161,7 +170,7 @@ function initKeyboardShortcuts() {
     // Ctrl+S → 保存配置
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
-      showToast('配置保存在会话中，开始进化后自动生效', 'info');
+      showToast(T('t.configSavedSession'), 'info');
     }
   });
 }
@@ -237,7 +246,7 @@ function initTabs() {
     tab.addEventListener('click', (e) => {
       if (tab.id !== 'setting-tab' && tab.id !== 'admin-tab' && !validateSettings()) {
         e.preventDefault();
-        showToast('请先完成设置再切换页面', 'warning');
+        showToast(T('t.finishSettingsFirst'), 'warning');
         return;
       }
       tabs.forEach(t => t.classList.remove('active'));
@@ -270,7 +279,6 @@ function initTabs() {
 }
 
 // ── 轮询管理器 ────────────────────────────────
-let pollingTimers = {};
 
 function startPolling(name, fn, interval) {
   stopPolling(name);
@@ -292,19 +300,21 @@ function stopAllPolling() {
 // ── Validation ─────────────────────────────────
 function validateSettings() {
   const fields = {
-    population_capacity: parseInt,
-    num_generations: parseInt,
-    num_mutation: parseInt,
-    num_hybridization: parseInt,
-    num_reflection: parseInt
+    population_capacity: 7,
+    num_generations: 5,
+    num_mutation: 3,
+    num_hybridization: 3,
+    num_reflection: 3
   };
-  for (const [id, fn] of Object.entries(fields)) {
-    const val = fn(document.getElementById(id)?.value);
+  let allOk = true;
+  for (const [id, def] of Object.entries(fields)) {
+    const val = parseInt(document.getElementById(id)?.value);
     if (isNaN(val) || val < 0) {
-      showToast('进化参数需为非负整数，请检查设置', 'error');
-      return false;
+      document.getElementById(id).value = def;
+      allOk = false;
     }
   }
+  if (!allOk) showToast(T('t.paramsAutoFixed'), 'warning');
   return true;
 }
 
@@ -313,7 +323,7 @@ function onProblemChange() {
   const sel = document.getElementById('problem_selector');
   if (!sel || !sel.value) return;
   const pid = sel.value;
-  showToast(`正在加载 ${pid} 的配置...`, 'info');
+  showToast(T('t.loadingCfg', pid), 'info');
   fetch('/api/get_problem_config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -322,7 +332,7 @@ function onProblemChange() {
   .then(r => r.json())
   .then(d => {
     const cfg = d.config;
-    if (!cfg) throw new Error(d.message || '获取配置失败');
+    if (!cfg) throw new Error(d.message || T('t.loadCfgFailed'));
     document.getElementById('problem').value = cfg.problem || '';
     document.getElementById('fun_name').value = cfg.fun_name || '';
     document.getElementById('fun_notes').value = cfg.fun_notes || '';
@@ -347,9 +357,9 @@ function onProblemChange() {
       ).join('');
     }
 
-    showToast(`已切换到 ${cfg.name || pid}`, 'success');
+    showToast(T('t.cfgLoaded', cfg.name || pid), 'success');
   })
-  .catch(err => showToast('[FAIL] 加载问题配置失败: ' + err.message, 'error'));
+  .catch(err => showToast(T('t.loadCfgFailed2', err.message), 'error'));
 }
 
 // ── LLM Preset Loader ──────────────────────────
@@ -389,7 +399,7 @@ function initLLMPresets() {
     .catch(() => {
       const sel = document.getElementById('llm_model_select');
       if (sel) {
-        sel.innerHTML = '<option value="deepseek-chat">DeepSeek V3 (离线备用)</option><option value="deepseek-reasoner">DeepSeek R1 (离线备用)</option>';
+        sel.innerHTML = '<option value="deepseek-chat">DeepSeek V3' + T('t.offlineFallback') + '</option><option value="deepseek-reasoner">DeepSeek R1' + T('t.offlineFallback') + '</option>';
         sel.value = 'deepseek-chat';
         onLLMModelChange();
         sel.dataset.loaded = '1';
@@ -413,14 +423,14 @@ function onLLMModelChange() {
   if (isCustom) {
     customInput.style.display = 'block';
     customInput.focus();
-    if (hint) hint.textContent = '输入自定义模型名称，并手动填写 BASE_URL';
+    if (hint) hint.textContent = T('t.customModelHint');
   } else {
     customInput.style.display = 'none';
     if (urlInput && selected) {
       const dataUrl = selected.getAttribute('data-url');
       if (dataUrl) urlInput.value = dataUrl;
     }
-    if (hint) hint.textContent = `模型: ${selected?.text || ''}`;
+    if (hint) hint.textContent = T('t.modelInfo', selected?.text || '');
   }
 }
 
@@ -447,7 +457,7 @@ function initSettingPage() {
     .catch(() => {
       const sel = document.getElementById('problem_selector');
       if (sel && !sel.dataset.loaded) {
-        sel.innerHTML = '<option value="tsp">TSP (旅行商问题)</option><option value="cvrp">CVRP (车辆路径)</option><option value="knapsack">Knapsack (背包)</option><option value="maxcut">MaxCut</option><option value="pfsp">PFSP (流水车间)</option>';
+        sel.innerHTML = '<option value="tsp">TSP (Travelling Salesman Problem)</option><option value="cvrp">CVRP (Vehicle Routing)</option><option value="knapsack">Knapsack (0/1)</option><option value="maxcut">MaxCut</option><option value="pfsp">PFSP (Flow Shop)</option>';
         onProblemChange();
       }
     });
@@ -462,14 +472,14 @@ function initSettingPage() {
   document.getElementById('add_arg_btn')?.addEventListener('click', () => {
     const c = document.getElementById('fun_args_container');
     const el = document.createElement('div');
-    el.className = 'arg-item'; el.contentEditable = true; el.textContent = '新参数';
+    el.className = 'arg-item'; el.contentEditable = true; el.textContent = T('t.newArg');
     c.appendChild(el); el.focus();
     selectArgText(el);
   });
   document.getElementById('add_return_btn')?.addEventListener('click', () => {
     const c = document.getElementById('fun_return_container');
     const el = document.createElement('div');
-    el.className = 'arg-item'; el.contentEditable = true; el.textContent = '新返回值';
+    el.className = 'arg-item'; el.contentEditable = true; el.textContent = T('t.newReturn');
     c.appendChild(el); el.focus();
     selectArgText(el);
   });
@@ -478,6 +488,26 @@ function initSettingPage() {
     if (e.target.classList.contains('arg-item') && e.target.textContent.trim() === '') {
       e.target.remove();
     }
+  });
+
+  // 训练数据/标准解的浏览按钮
+  document.querySelectorAll('#setting-page .file-input').forEach((fi, idx) => {
+    const btn = fi.querySelector('.browse-btn');
+    const input = fi.querySelector('input[type="text"]');
+    const filePicker = document.createElement('input');
+    filePicker.type = 'file';
+    filePicker.style.display = 'none';
+    fi.appendChild(filePicker);
+    const targetId = input?.id || '';
+    filePicker.addEventListener('change', e => {
+      const files = e.target.files;
+      if (files?.length > 0) {
+        input.value = files[0].name;
+        showToast(T('t.fileSelected'), 'success');
+      }
+      e.target.value = '';
+    });
+    btn?.addEventListener('click', () => filePicker.click());
   });
 
   document.getElementById('browse_problem_path')?.addEventListener('click', () => {
@@ -501,9 +531,9 @@ function initSettingPage() {
           dirPath = dirPath.substring(nsehIdx + 5).replace(/^[\\\/]+/, '');
         }
         document.getElementById('problem_path').value = dirPath;
-        showToast('已选择目录: ' + dirPath, 'success');
+        showToast(T('t.dirSelected', dirPath), 'success');
       } else {
-        showToast('无法获取目录路径，请手动输入', 'warning');
+        showToast(T('t.dirFailed'), 'warning');
       }
     }
     // 重置 input 以便同一目录可再次选择
@@ -549,9 +579,9 @@ function updateScenarioBadge() {
   fetch('/api/get_current_problem')
     .then(r => r.json())
     .then(d => {
-      if (d.status === 'success') badge.textContent = d.problem_name || d.problem_id || '未知';
+      if (d.status === 'success') badge.textContent = d.problem_name || d.problem_id || T('t.unknown');
     })
-    .catch(() => {});
+    .catch(() => {/* poll retry */});
 }
 
 // ── Evolution Timer ────────────────────────────
@@ -570,12 +600,23 @@ function updateEvolutionTimer() {
       const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
 
       if (current_gen > 0) {
-        timerEl.textContent = `⏱ ${current_gen}/${total_gens} 代 耗时 ${timeStr}`;
+        timerEl.textContent = T('t.timerGen', current_gen, total_gens, timeStr);
       } else {
-        timerEl.textContent = `⏱ 初始化中... 耗时 ${timeStr}`;
+        timerEl.textContent = T('t.timerInit', timeStr);
+      }
+
+      // 更新进度条
+      const fill = document.getElementById('evolution-progress-fill');
+      const count = document.getElementById('progress-count');
+      if (fill && total_gens > 0) {
+        const pct = current_gen > 0 ? Math.min((current_gen / total_gens) * 100, 100) : 0;
+        fill.style.width = pct + '%';
+      }
+      if (count) {
+        count.textContent = T('t.timerGenCount', current_gen, total_gens);
       }
     })
-    .catch(() => {});
+    .catch(() => {/* poll retry */});
 }
 
 // ── Confirmation Dialog ────────────────────────
@@ -586,8 +627,8 @@ function showConfirmDialog(msg, onConfirm) {
     <div class="confirm-dialog">
       <p>${escapeHtml(msg)}</p>
       <div class="confirm-actions">
-        <button class="control-btn resume-btn" id="confirm-yes">确认</button>
-        <button class="control-btn" id="confirm-no">取消</button>
+        <button class="control-btn resume-btn" id="confirm-yes">${T('t.confirm')}</button>
+        <button class="control-btn" id="confirm-no">${T('t.cancel')}</button>
       </div>
     </div>
   `;
@@ -602,7 +643,7 @@ function startEvolution() {
 
   const modelName = getCurrentModelName();
   const problemSelect = document.getElementById('problem_selector');
-  const problemName = problemSelect?.selectedOptions?.[0]?.text || '自定义';
+  const problemName = problemSelect?.selectedOptions?.[0]?.text || T('t.custom');
   const problemId = problemSelect?.value || 'custom';
 
   const config = {
@@ -628,17 +669,17 @@ function startEvolution() {
   };
 
   // 前端校验
-  if (!config.api_key.trim()) return showToast('请填写 API Key', 'error');
-  if (!config.base_url.trim()) return showToast('请填写 BASE_URL', 'error');
-  if (!config.llm_model.trim()) return showToast('请选择或输入 LLM 模型名称', 'error');
-  if (!config.problem_path.trim()) return showToast('请填写问题目录', 'error');
+  if (!config.api_key.trim()) return showToast(T('t.needApiKey'), 'error');
+  if (!config.base_url.trim()) return showToast(T('t.needBaseUrl'), 'error');
+  if (!config.llm_model.trim()) return showToast(T('t.needModel'), 'error');
+  if (!config.problem_path.trim()) return showToast(T('t.needProblemPath'), 'error');
 
   localStorage.setItem('nseh_config', JSON.stringify(config));
 
   const btn = document.getElementById('start-evolution-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="spin" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg> 正在启动...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="spin" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg> ' + T('t.starting') + '...'; }
 
-  showToast('正在保存配置并启动进化...', 'info');
+  showToast(T('t.savingAndStart'), 'info');
 
   fetch('/api/save_config', {
     method: 'POST',
@@ -648,21 +689,23 @@ function startEvolution() {
   .then(r => r.json())
   .then(d => {
     if (d.status === 'success') {
-      showToast('配置保存成功，正在启动进化...', 'success');
+      showToast(T('t.configSaved'), 'success');
       document.getElementById('evolution-tab')?.click();
       return fetch('/api/start_evolution', { method: 'POST' });
     }
-    throw new Error(d.message || '保存配置失败');
+    throw new Error(d.message || T('t.saveFailed'));
   })
   .then(r => r.json())
   .then(d => {
     if (d.status !== 'success') throw new Error(d.message);
-    showToast('进化已启动 ✓', 'success');
-    if (btn) { btn.disabled = false; btn.textContent = '开始进化'; }
+    showToast(T('t.evoStarted'), 'success');
+    if (btn) { btn.disabled = false; btn.textContent = T('t.startEvo'); }
+    // 直接触发种群数据轮询（即使 tab click 失效也能取到数据）
+    setTimeout(fetchPopulationData, 500);
   })
   .catch(err => {
     showToast('[ERROR] ' + err.message, 'error', 5000);
-    if (btn) { btn.disabled = false; btn.textContent = '开始进化'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('t.startEvo'); }
   });
 }
 
@@ -680,21 +723,21 @@ function initEvolutionPage() {
   // 进化页面初始化时不再抢请求，等切换到该 tab 再由 startPolling 触发
   updateScenarioBadge();
 
-  updateScenarioBadge();
-
   document.getElementById('pause-evolution-btn')?.addEventListener('click', () => {
+    updateEvolutionStatusUI('paused');
     fetch('/api/pause_evolution', { method: 'POST' });
-    showToast('进化已暂停', 'warning');
+    showToast(T('t.evoPaused'), 'warning');
   });
   document.getElementById('resume-evolution-btn')?.addEventListener('click', () => {
+    updateEvolutionStatusUI('running');
     fetch('/api/resume_evolution', { method: 'POST' });
-    showToast('进化继续中...', 'success');
+    showToast(T('t.evoResumed'), 'success');
   });
   document.getElementById('stop-evolution-btn')?.addEventListener('click', () => {
-    showConfirmDialog('确定要终止当前进化吗？所有当前代的进度将丢失。', () => {
+    showConfirmDialog(T('t.confirmStop'), () => {
       fetch('/api/stop_evolution', { method: 'POST' }).then(() => {
         document.getElementById('setting-tab')?.click();
-        showToast('进化已终止', 'warning');
+        showToast(T('t.evoStopped'), 'warning');
       });
     });
   });
@@ -706,24 +749,30 @@ function initEvolutionPage() {
         showPromptEditCard(d);
         fetch('/api/pause_evolution', { method: 'POST' });
       })
-      .catch(err => showToast('获取提示词模板失败: ' + err.message, 'error'));
+      .catch(err => showToast(T('t.promptFetchFailed', err.message), 'error'));
   });
 }
 
 function fetchPopulationData() {
+  console.log('[NSEH] fetchPopulationData called');
   fetch('/api/get_population_data')
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(d => {
       const prevLen = population_data?.length || 0;
-      population_data = d.population_data;
-      renderPopulationData(d.population_data, d.current_population_index);
+      if (d.population_data && d.population_data.length > 0) {
+        population_data = d.population_data;
+        renderPopulationData(d.population_data, d.current_population_index);
+      }
 
       // 自动滚动到最新一代
       if (d.population_data?.length > prevLen) {
         scrollToLatestGeneration();
       }
     })
-    .catch(() => {});
+    .catch(err => console.warn('[NSEH] fetchPopulationData error:', err));
 }
 
 function scrollToLatestGeneration() {
@@ -735,26 +784,127 @@ function scrollToLatestGeneration() {
   container.scrollTop = container.scrollHeight;
 }
 
+function updateEvolutionStatusUI(status) {
+  const dot = document.getElementById('evo-status-dot');
+  const text = document.getElementById('evo-status-text');
+  if (!dot || !text) return;
+  dot.className = 'evo-dot';
+  switch (status) {
+    case 'running':
+      dot.classList.add('running');
+      text.textContent = T('t.statusRunning');
+      text.style.color = 'var(--success)';
+      break;
+    case 'completed':
+      dot.classList.add('completed');
+      text.textContent = T('t.statusCompleted');
+      text.style.color = 'var(--success)';
+      break;
+    case 'paused':
+      dot.classList.add('paused');
+      text.textContent = T('t.statusPaused');
+      text.style.color = 'var(--accent)';
+      break;
+    case 'idle':
+    default:
+      text.textContent = T('t.statusWaiting');
+      text.style.color = 'var(--text-muted)';
+      break;
+  }
+}
+
 function checkEvolutionStatus() {
   fetch('/api/check_evolution_status')
     .then(r => r.json())
     .then(d => {
       if (d.status === 'completed') {
-        showToast('进化完成 ✓ 切换到结果页查看', 'success', 5000);
+        updateEvolutionStatusUI('completed');
+        showToast(T('t.evoDoneToast'), 'success', 5000);
         document.getElementById('results-tab')?.click();
+      } else if (d.status === 'running') {
+        updateEvolutionStatusUI('running');
+      } else if (d.status === 'paused') {
+        updateEvolutionStatusUI('paused');
       } else if (d.status === 'idle') {
-        // noop
+        updateEvolutionStatusUI('idle');
       }
     })
-    .catch(() => {});
+    .catch(() => {/* poll retry */});
+}
+
+// ── 状态/标题翻译（后端数据为中文，展示时按当前语言翻译）──
+function trStatus(status) {
+  if (!status) return T('t.waiting');
+  const map = {
+    '正在生成': T('t.statusGenerating'),
+    '开始生成': T('t.statusStartGen'),
+    '已完成': T('t.statusDone'),
+    '已暂停': T('t.statusPaused'),
+    '等待中': T('t.waiting'),
+    '已加载': T('t.statusLoaded'),
+    '正在进行 突变': T('t.statusMutating'),
+    '正在进行 杂交': T('t.statusHybridizing'),
+    '正在进行 优化': T('t.statusOptimizing'),
+    '正在进行 筛选与反思': T('t.statusSelecting'),
+    '初始化中': T('t.statusInitializing')
+  };
+  return map[status] || status;
+}
+
+function trTitle(title, index) {
+  if (!title) return T('t.genFallback', index != null ? index : '');
+  if (title === '初始化种群') return T('t.titleInit');
+  const m1 = title.match(/^续训起点 \((\d+)代\)$/);
+  if (m1) return T('t.titleResume', m1[1]);
+  const m2 = title.match(/^第(\d+)代种群$/);
+  if (m2) return T('t.genPopulation', m2[1]);
+  const m3 = title.match(/^第(\d+)代$/);
+  if (m3) return T('t.genFallback', m3[1]);
+  return title;
 }
 
 // ── Render Population ──────────────────────────
 function renderPopulationData(data, currentIdx) {
   const container = document.getElementById('population-container');
   if (!container || !data?.length) return;
-  container.innerHTML = data.map((pop, gi) => renderPopCard(pop, gi)).join('');
-  // 恢复展开状态
+
+  // 增量更新：只添加新代卡片，已有卡片只更新状态
+  const existingCards = container.querySelectorAll('.population-card');
+  const existingCount = existingCards.length;
+
+  // 更新已有卡片的状态（best_objective, status）
+  for (let i = 0; i < Math.min(existingCount, data.length); i++) {
+    const card = existingCards[i];
+    const pop = data[i];
+    const statusEl = card.querySelector('.population-status');
+    const fitnessEl = card.querySelector('.best-fitness');
+    if (statusEl) {
+      const newClass = getStatusClass(pop.status);
+      if (newClass) statusEl.className = 'population-status ' + newClass;
+      statusEl.textContent = trStatus(pop.status);
+    }
+    if (fitnessEl) {
+      const best = pop.best_objective !== null && pop.best_objective !== 'undefined' && pop.best_objective !== 'null'
+        ? parseFloat(pop.best_objective).toFixed(4) : '—';
+      fitnessEl.textContent = best;
+    }
+    // 更新启发式卡片内容（首次显示或数量变化时）
+    const heurContainer = card.querySelector('.heuristics-container');
+    if (heurContainer) {
+      const newHeurHtml = renderHeuristics(pop.heuristics || []);
+      if (heurContainer.innerHTML !== newHeurHtml) {
+        heurContainer.innerHTML = newHeurHtml;
+      }
+    }
+  }
+
+  // 添加新代卡片
+  for (let i = existingCount; i < data.length; i++) {
+    const div = document.createElement('div');
+    div.innerHTML = renderPopCard(data[i], i).trim();
+    container.appendChild(div.firstChild);
+  }
+
   restoreFeatureCollapseStates();
 }
 
@@ -766,17 +916,17 @@ function renderPopCard(pop, genIdx) {
   const posFeats = pop.memory?.positive_features || [];
   const negFeats = pop.memory?.negative_features || [];
 
-  const posCollapse = renderFeatureCollapse('positive', '积极特征', posFeats, pop.index || genIdx);
-  const negCollapse = renderFeatureCollapse('negative', '消极特征', negFeats, pop.index || genIdx);
+  const posCollapse = renderFeatureCollapse('positive', T('t.posFeatures'), posFeats, pop.index || genIdx);
+  const negCollapse = renderFeatureCollapse('negative', T('t.negFeatures'), negFeats, pop.index || genIdx);
 
   return `
     <div class="population-card gen-${pop.index}">
       <div class="population-header">
-        <h3>${pop.title || `第${pop.index}代`}</h3>
-        <span class="population-status ${statusClass}">${pop.status || '等待中'}</span>
+        <h3>${trTitle(pop.title, pop.index)}</h3>
+        <span class="population-status ${statusClass}">${trStatus(pop.status)}</span>
       </div>
       <div class="population-stats">
-        <div class="stat"><strong>最优适应度：</strong><span class="best-fitness">${best}</span></div>
+        <div class="stat"><strong>${T('t.bestFitness')}</strong><span class="best-fitness">${best}</span></div>
       </div>
       <div class="population-features">
         ${posCollapse}
@@ -794,7 +944,16 @@ function renderFeatureCollapse(type, label, features, genIdx) {
   const colorClass = type === 'positive' ? 'feat-positive' : 'feat-negative';
   const icon = type === 'positive' ? '📈' : '📉';
 
-  const featureLines = features.map(f => {
+  // 特征去重：相同的标签组合只显示一次
+  const seen = new Set();
+  const uniqueFeatures = features.filter(f => {
+    const key = Array.isArray(f) ? JSON.stringify([...f].sort()) : String(f);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const featureLines = uniqueFeatures.map(f => {
     if (Array.isArray(f) && f.length > 0) {
       return f.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('<span class="tag-plus"> + </span>');
     }
@@ -806,7 +965,7 @@ function renderFeatureCollapse(type, label, features, genIdx) {
       <div class="feat-header" onclick="toggleFeatureCollapse('${collapseId}')">
         <span class="feat-icon">${icon}</span>
         <span class="feat-label">${label}</span>
-        <span class="feat-count">${features.length}</span>
+        <span class="feat-count">${uniqueFeatures.length}</span>
         <span class="feat-chevron" id="chevron-${collapseId}">▶</span>
       </div>
       <div class="feat-body" id="${collapseId}">
@@ -817,7 +976,6 @@ function renderFeatureCollapse(type, label, features, genIdx) {
 }
 
 // ── 特征列表展开状态同步 ───────────────────
-let _featureOpenState = {};
 
 function toggleFeatureCollapse(id) {
   const body = document.getElementById(id);
@@ -858,7 +1016,7 @@ function formatFeature(f) {
 }
 
 function renderHeuristics(heuristics) {
-  if (!heuristics?.length) return '<div class="empty-heuristics">暂无启发式</div>';
+  if (!heuristics?.length) return '<div class="empty-heuristics">' + T('t.noHeuristics') + '</div>';
 
   const objectives = heuristics
     .filter(h => h.objective !== null && h.objective !== 'null' && h.objective !== Infinity)
@@ -874,12 +1032,18 @@ function renderHeuristics(heuristics) {
       ? tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')
       : (h.feature ? `<span class="tag">${escapeHtml(h.feature)}</span>` : '');
 
+    // 启发式名称：优先用 feature 字段，没有则用 tags，最后 fallback
+    const heurName = h.feature 
+      ? (Array.isArray(h.feature) ? h.feature.join(' · ') : h.feature)
+      : (tagsHtml || T('t.unnamedHeuristic'));
+
     return `
-      <div class="heuristic-card ${isBest ? 'best' : ''}" onclick="showHeuristicDetails(${h.index || i + 1})">
-        <div class="rank-badge">${i + 1}</div>
-        <h4>启发式 ${h.index || i + 1}</h4>
-        <div class="heuristic-feature">${tagsHtml || '—'}</div>
-        <div class="heuristic-objective">适应度: ${obj}</div>
+      <div class="heuristic-card ${isBest ? 'best' : ''}" onclick="showHeuristicDetails(${h.index || i + 1})" title="${escapeHtml(heurName)}">
+        <div class="heur-top">
+          <div class="heur-name" title="${escapeHtml(heurName)}">${escapeHtml(heurName)}</div>
+          <div class="heur-obj${isBest ? ' heur-obj-best' : ''}">${obj}</div>
+        </div>
+        <div class="heur-tags">${tagsHtml || '<span class="heur-no-tags">' + T('t.noTags') + '</span>'}</div>
       </div>
     `;
   }).join('');
@@ -889,9 +1053,9 @@ function showHeuristicDetails(index) {
   const pop = population_data[population_data.length - 1];
   if (!pop) return;
   const h = pop.heuristics?.find(x => x.index === index);
-  if (!h) { showToast('未找到启发式详情', 'error'); return; }
+  if (!h) { showToast(T('t.detailNotFound'), 'error'); return; }
 
-  document.getElementById('heuristic-detail-title').textContent = '启发式 ' + index;
+  document.getElementById('heuristic-detail-title').textContent = T('t.heuristicN', index);
   document.getElementById('detail-concept').textContent = h.concept || '—';
   document.getElementById('detail-objective').textContent =
     (h.objective !== null && h.objective !== 'null' && h.objective !== Infinity)
@@ -901,12 +1065,18 @@ function showHeuristicDetails(index) {
 
   document.getElementById('heuristic-details-container').style.display = 'block';
   document.body.classList.add('details-visible');
+  // 让种群区域释放右侧空间
+  const layout = document.querySelector('.evolution-layout');
+  if (layout) layout.classList.remove('details-collapsed');
 }
 
 function closeDetailsCard() {
   const el = document.getElementById('heuristic-details-container');
   if (el) el.style.display = 'none';
   document.body.classList.remove('details-visible');
+  // 种群区域恢复全宽
+  const layout = document.querySelector('.evolution-layout');
+  if (layout) layout.classList.add('details-collapsed');
 }
 
 function copyAlgorithm() {
@@ -917,7 +1087,7 @@ function copyAlgorithm() {
       const msg = document.getElementById('copy-success');
       if (msg) { msg.style.opacity = '1'; setTimeout(() => msg.style.opacity = '0', 2000); }
     })
-    .catch(() => showToast('无法访问剪贴板，请手动复制', 'warning'));
+    .catch(() => showToast(T('t.clipboardFail'), 'warning'));
 }
 
 // ── Prompt Edit Card ───────────────────────────
@@ -928,32 +1098,32 @@ function showPromptEditCard(data) {
   const html = `
     <div class="prompt-edit-card">
       <div class="details-header">
-        <h3>自定义提示词</h3>
-        <button class="close-btn" onclick="closePromptEditCard(this)">关闭</button>
+        <h3>${T('t.customPrompt')}</h3>
+        <button class="close-btn" onclick="closePromptEditCard(this)">${T('evo.close')}</button>
       </div>
       <div class="form-group">
-        <label>函数要求</label>
+        <label>${T('t.funReq')}</label>
         <textarea id="fun_requirement" rows="3">${escapeHtml(data.fun_requirement)}</textarea>
       </div>
       <div class="form-group">
-        <label>MUTATION 突变</label>
+        <label>${T('t.mutation')}</label>
         <textarea id="strategy_MUT" rows="3">${escapeHtml(data.strategy_MUT)}</textarea>
       </div>
       <div class="form-group">
-        <label>HYBRIDIZATION 杂交</label>
+        <label>${T('t.hybridization')}</label>
         <textarea id="strategy_HYB" rows="3">${escapeHtml(data.strategy_HYB)}</textarea>
       </div>
       <div class="form-group">
-        <label>OPTIMIZATION 优化</label>
+        <label>${T('t.optimization')}</label>
         <textarea id="strategy_OPT" rows="3">${escapeHtml(data.strategy_OPT)}</textarea>
       </div>
       <div class="form-group">
-        <label>分析过程</label>
+        <label>${T('t.analyze')}</label>
         <textarea id="analyze" rows="3">${escapeHtml(data.analyze)}</textarea>
       </div>
       <div class="prompt-edit-actions">
-        <button class="control-btn resume-btn" onclick="updatePromptTemplate()">确认更新</button>
-        <button class="control-btn" onclick="closePromptEditCard(this)">取消</button>
+        <button class="control-btn resume-btn" onclick="updatePromptTemplate()">${T('t.confirmUpdate')}</button>
+        <button class="control-btn" onclick="closePromptEditCard(this)">${T('t.cancel')}</button>
       </div>
     </div>
   `;
@@ -985,7 +1155,7 @@ function updatePromptTemplate() {
   .then(r => r.json())
   .then(d => {
     if (d.status === 'success') {
-      showToast('提示词已更新', 'success');
+      showToast(T('t.promptUpdated'), 'success');
       closePromptEditCard();
     } else throw new Error(d.message);
   })
@@ -1003,7 +1173,7 @@ function initResultsPage() {
     fetch('/api/open_results_directory', { method: 'GET' })
       .then(r => r.json())
       .then(d => { if (d.status !== 'success') showToast(d.message, 'error'); })
-      .catch(() => showToast('无法打开结果目录', 'error'));
+      .catch(() => showToast(T('t.cannotOpenDir'), 'error'));
   });
   document.getElementById('open-rank-btn')?.addEventListener('click', () => {
     window.location.href = '/rank';
@@ -1051,8 +1221,8 @@ function renderChart() {
   const dark = !document.documentElement.getAttribute('data-theme');
   resultsChart = new Chart(canvas, {
     type: 'line',
-    data: { labels, datasets: [{ label: '最优适应度', data: values, borderColor: '#f0883e', backgroundColor: 'rgba(240,136,62,0.08)', fill: true, tension: 0.3, pointRadius: 5, pointHoverRadius: 8, pointBackgroundColor: values.map((_, i, a) => i === a.length - 1 ? '#3fb950' : '#f0883e'), pointBorderColor: dark ? '#0d1117' : '#fff', pointBorderWidth: 2, borderWidth: 2.5 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 } } }, tooltip: { callbacks: { label: ctx => '最优: ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: '进化代数', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' }, grid: { color: dark ? 'rgba(48,54,61,0.3)' : 'rgba(208,215,222,0.3)' } }, y: { title: { display: true, text: '适应度', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' }, grid: { color: dark ? 'rgba(48,54,61,0.3)' : 'rgba(208,215,222,0.3)' } } } }
+    data: { labels, datasets: [{ label: T('t.chartBestFitness'), data: values, borderColor: '#f0883e', backgroundColor: 'rgba(240,136,62,0.08)', fill: true, tension: 0.3, pointRadius: 5, pointHoverRadius: 8, pointBackgroundColor: values.map((_, i, a) => i === a.length - 1 ? '#3fb950' : '#f0883e'), pointBorderColor: dark ? '#0d1117' : '#fff', pointBorderWidth: 2, borderWidth: 2.5 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 } } }, tooltip: { callbacks: { label: ctx => T('t.chartBest') + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: T('t.chartGen'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' }, grid: { color: dark ? 'rgba(48,54,61,0.3)' : 'rgba(208,215,222,0.3)' } }, y: { title: { display: true, text: T('t.chartFitness'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' }, grid: { color: dark ? 'rgba(48,54,61,0.3)' : 'rgba(208,215,222,0.3)' } } } }
   });
 }
 
@@ -1062,15 +1232,16 @@ function renderMultiLineChart() {
   if (!valid.length) return;
   const labels = [], best = [], avg = [], vari = [];
   valid.forEach(p => {
-    labels.push('#' + (p.index != null ? p.index : ''));
     const vals = p.heuristics.map(h => h.objective).filter(v => v != null && v !== 'null' && v !== Infinity).map(Number);
     if (!vals.length) return;
+    labels.push('#' + (p.index != null ? p.index : ''));
     best.push(Math.min(...vals));
     const m = vals.reduce((a, b) => a + b, 0) / vals.length;
     avg.push(m);
     vari.push(vals.reduce((s, v) => s + (v - m) ** 2, 0) / vals.length);
   });
   if (!labels.length) return;
+  console.log('[NSEH Chart] multi data:', {labels, best, avg, vari});
   if (resultsChart) resultsChart.destroy();
   const canvas = document.getElementById('results-chart');
   if (!canvas) return;
@@ -1078,11 +1249,11 @@ function renderMultiLineChart() {
   resultsChart = new Chart(canvas, {
     type: 'line',
     data: { labels, datasets: [
-      { label: '最优值', data: best, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.05)', fill: false, tension: 0.3, pointRadius: 4, borderWidth: 2.5 },
-      { label: '均值', data: avg, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2, borderDash: [5,3] },
-      { label: '方差', data: vari, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 1.5, borderDash: [2,4] }
+      { label: T('t.chartBestVal'), data: best, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.05)', fill: false, tension: 0.3, pointRadius: 4, borderWidth: 2.5, yAxisID: 'y' },
+      { label: T('t.chartAvg'), data: avg, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2, borderDash: [5,3], yAxisID: 'y' },
+      { label: T('t.chartVar'), data: vari, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.05)', fill: false, tension: 0.3, pointRadius: 3, borderWidth: 1.5, borderDash: [2,4], yAxisID: 'y1' }
     ] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: '进化代数', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { title: { display: true, text: '适应度', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 11 } } }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: T('t.chartGen'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { type: 'linear', display: true, position: 'left', title: { display: true, text: T('t.chartFitness'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: T('t.chartVar'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
   });
 }
 
@@ -1098,8 +1269,8 @@ function renderTop3Chart() {
   const dark = !document.documentElement.getAttribute('data-theme');
   top3Chart = new Chart(canvas, {
     type: 'bar',
-    data: { labels: top3.map((_, i) => '#' + (i + 1)), datasets: [{ label: '最新代 TOP' + top3.length, data: top3.map(h => parseFloat(h.objective)), backgroundColor: ['#f0883e','#58a6ff','#3fb950'], borderColor: dark ? '#0d1117' : '#fff', borderWidth: 1.5, borderRadius: 4, barPercentage: 0.5 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 } } }, tooltip: { callbacks: { label: ctx => '适应度: ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: '排名', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { title: { display: true, text: '适应度', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
+    data: { labels: top3.map((_, i) => '#' + (i + 1)), datasets: [{ label: T('t.chartTop3Label', top3.length), data: top3.map(h => parseFloat(h.objective)), backgroundColor: ['#f0883e','#58a6ff','#3fb950'], borderColor: dark ? '#0d1117' : '#fff', borderWidth: 1.5, borderRadius: 4, barPercentage: 0.5 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 } } }, tooltip: { callbacks: { label: ctx => T('t.chartFitness') + ': ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: T('t.chartRank'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { title: { display: true, text: T('t.chartFitness'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
   });
 }
 
@@ -1117,8 +1288,8 @@ function renderAllHeuristicsChart() {
   const dark = !document.documentElement.getAttribute('data-theme');
   resultsChart = new Chart(canvas, {
     type: 'bar',
-    data: { labels, datasets: [{ label: '当前代全部启发式', data: values, backgroundColor: getChartColors(valid.length), borderColor: dark ? '#0d1117' : '#fff', borderWidth: 1, borderRadius: 3, barPercentage: 0.7 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 } } }, tooltip: { callbacks: { label: ctx => '适应度: ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: '启发式排名', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { title: { display: true, text: '适应度', color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
+    data: { labels, datasets: [{ label: T('t.chartAllLabel'), data: values, backgroundColor: getChartColors(valid.length), borderColor: dark ? '#0d1117' : '#fff', borderWidth: 1, borderRadius: 3, barPercentage: 0.7 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 } } }, tooltip: { callbacks: { label: ctx => T('t.chartFitness') + ': ' + ctx.parsed.y.toFixed(4) } } }, scales: { x: { title: { display: true, text: T('t.chartHeurRank'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } }, y: { title: { display: true, text: T('t.chartFitness'), color: dark ? '#8b949e' : '#656d76' }, ticks: { color: dark ? '#8b949e' : '#656d76' } } } }
   });
 }
 
@@ -1132,7 +1303,7 @@ function renderTokensChart() {
   const dark = !document.documentElement.getAttribute('data-theme');
   resultsChart = new Chart(canvas, {
     type: 'doughnut',
-    data: { labels: ['突变','杂交','优化'], datasets: [{ data: [mut, hyb, opt], backgroundColor: ['#f0883e','#58a6ff','#3fb950'], borderColor: dark ? '#0d1117' : '#fff', borderWidth: 2 }] },
+    data: { labels: [T('t.chartMutation'), T('t.chartHybridization'), T('t.chartOptimization')], datasets: [{ data: [mut, hyb, opt], backgroundColor: ['#f0883e','#58a6ff','#3fb950'], borderColor: dark ? '#0d1117' : '#fff', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: dark ? '#8b949e' : '#656d76', font: { size: 12 }, padding: 16 } }, tooltip: { callbacks: { label: ctx => { const t = ctx.dataset.data.reduce((a, b) => a + b, 0); return ctx.label + ': ' + Math.round(ctx.parsed) + ' tokens (' + (ctx.parsed / t * 100).toFixed(1) + '%)'; } } } } }
   });
 }
@@ -1147,7 +1318,7 @@ function closeSelfAdaptModal() {
   const btn = document.getElementById('generate-scenario-btn');
   if (btn) {
     btn.disabled = false;
-    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></svg> 生成场景';
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></svg> ' + T('modal.genScenario');
   }
 }
 
@@ -1155,10 +1326,10 @@ function generateScenario() {
   const name = document.getElementById('scenario_name_input').value.trim();
   const desc = document.getElementById('scenario_desc_input').value.trim();
 
-  if (!name) { showToast('请输入场景名称', 'error'); return; }
-  if (!desc) { showToast('请输入场景描述', 'error'); return; }
+  if (!name) { showToast(T('t.scenarioNameReq'), 'error'); return; }
+  if (!desc) { showToast(T('t.scenarioDescReq'), 'error'); return; }
   if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
-    showToast('场景名只能包含字母、数字和下划线，且必须以字母开头', 'error');
+    showToast(T('t.scenarioNameInvalid'), 'error');
     return;
   }
 
@@ -1169,7 +1340,7 @@ function generateScenario() {
   const btn = document.getElementById('generate-scenario-btn');
   if (!btn) return;
   btn.disabled = true;
-  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="spin" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg> 正在生成...';
+  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="spin" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"/></svg> ' + T('t.generating');
 
   ['step-config', 'step-heuristic', 'step-datagen', 'step-traineval', 'step-finish'].forEach(id => {
     const el = document.getElementById(id);
@@ -1180,27 +1351,6 @@ function generateScenario() {
       el.querySelector('.step-done').style.display = 'none';
       el.querySelector('.step-error').style.display = 'none';
     }
-    list.style.display = 'block';
-    list.innerHTML = pops.map(p => {
-      const problemTag = p.problem ? `<span class="tag" style="margin-right:8px;">${escapeHtml(p.problem)}</span>` : '';
-      return `<div class="pop-file-card" onclick="selectPopulationFile('${escapeHtml(p.path)}')">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            ${problemTag}
-            <strong style="color:var(--accent);">第 ${p.generation} 代</strong>
-            <span style="color:var(--text-secondary);margin-left:8px;">${escapeHtml(p.date)}</span>
-          </div>
-          <div style="color:var(--text-secondary);font-size:0.82rem;">
-            ${escapeHtml(p.mtime)} · ${p.size_kb}KB
-          </div>
-        </div>
-        <div style="font-size:0.82rem;color:var(--text-secondary);margin-top:4px;">${escapeHtml(p.filename)}</div>
-      </div>`;
-    }).join('');
-  })
-  .catch(err => {
-    loading.style.display = 'none';
-    showToast('加载种群列表失败: ' + err.message, 'error');
   });
 
   setStepActive('step-config');
@@ -1223,15 +1373,15 @@ function generateScenario() {
       resultEl.className = 'generate-result success';
       resultEl.style.display = 'block';
       resultEl.innerHTML = `
-        <strong style="color:var(--success);">${d.message}</strong><br><br>
-        <strong>场景信息：</strong><br>
-        名称：${escapeHtml(name)}<br>
-        目录：problems/${escapeHtml(name)}/<br><br>
-        <button class="control-btn resume-btn" onclick="applyGeneratedScenario('${escapeHtml(name)}')">应用此场景</button>
-        <button class="control-btn" onclick="closeSelfAdaptModal()">关闭</button>
+        <strong style="color:var(--success);">${escapeHtml(d.message)}</strong><br><br>
+        <strong>${T('t.scenarioInfo')}</strong><br>
+        ${T('t.name')}${escapeHtml(name)}<br>
+        ${T('t.dir')}problems/${escapeHtml(name)}/<br><br>
+        <button class="control-btn resume-btn" onclick="applyGeneratedScenario('${escapeHtml(name)}')">${T('t.applyScenario')}</button>
+        <button class="control-btn" onclick="closeSelfAdaptModal()">${T('evo.close')}</button>
       `;
     } else {
-      throw new Error(d.message || '生成失败');
+      throw new Error(d.message || T('t.genFailed'));
     }
   })
   .catch(err => {
@@ -1239,12 +1389,12 @@ function generateScenario() {
     const resultEl = document.getElementById('generate-result');
     resultEl.className = 'generate-result error';
     resultEl.style.display = 'block';
-    resultEl.innerHTML = `<strong style="color:var(--danger);">生成失败: </strong>${escapeHtml(err.message)}`;
+    resultEl.innerHTML = `<strong style="color:var(--danger);">${T('t.genFailed')}</strong>${escapeHtml(err.message)}`;
     setStepError('step-config');
   })
   .finally(() => {
     btn.disabled = false;
-    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></svg> 生成场景';
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/></svg> ' + T('modal.genScenario');
   });
 }
 
@@ -1299,12 +1449,12 @@ function applyGeneratedScenario(scenarioId) {
             ).join('');
             sel.value = scenarioId;
             onProblemChange();
-            showToast(`已切换到场景: ${scenarioId}`, 'success');
+            showToast(T('t.scenarioApplied', scenarioId), 'success');
           }
         });
     }
   })
-  .catch(err => showToast('加载新场景失败: ' + err.message, 'error'));
+  .catch(err => showToast(T('t.newScenarioFailed', err.message), 'error'));
 }
 
 // ── 加载已有种群 ────────────────────────────
@@ -1332,7 +1482,7 @@ function listSavedPopulations() {
   const empty = document.getElementById('population-list-empty');
 
   loading.style.display = 'block';
-  loading.textContent = '正在扫描所有问题的已保存种群...';
+  loading.textContent = T('t.scanningPops');
   list.style.display = 'none';
   empty.style.display = 'none';
 
@@ -1357,7 +1507,7 @@ function listSavedPopulations() {
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
             ${problemTag}
-            <strong style="color:var(--accent);">第 ${p.generation} 代</strong>
+            <strong style="color:var(--accent);">${T('t.genN', p.generation)}</strong>
             <span style="color:var(--text-secondary);margin-left:8px;">${escapeHtml(p.date)}</span>
           </div>
           <div style="color:var(--text-secondary);font-size:0.82rem;">
@@ -1370,12 +1520,12 @@ function listSavedPopulations() {
   })
   .catch(err => {
     loading.style.display = 'none';
-    showToast('加载种群列表失败: ' + err.message, 'error');
+    showToast(T('t.popListFailed', err.message), 'error');
   });
 }
 
 function selectPopulationFile(path) {
-  showToast('正在加载种群...', 'info');
+  showToast(T('t.loadingPop'), 'info');
   fetch('/api/load_population', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1389,59 +1539,20 @@ function selectPopulationFile(path) {
       summary.innerHTML = `
         <strong style="color:var(--success);">${escapeHtml(d.message)}</strong><br><br>
         <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">起始代数</td>
-              <td style="padding:4px 8px;">第 ${d.generation} 代</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">启发式数量</td>
-              <td style="padding:4px 8px;">${d.heuristic_count} 个</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">积极特征</td>
-              <td style="padding:4px 8px;">${d.memory_summary.positive_count} 条</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">消极特征</td>
-              <td style="padding:4px 8px;">${d.memory_summary.negative_count} 条</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">${T('t.startGen')}</td>
+              <td style="padding:4px 8px;">${T('t.genN', d.generation)}</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">${T('t.heurCount')}</td>
+              <td style="padding:4px 8px;">${T('t.countUnit', d.heuristic_count)}</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">${T('t.posCount')}</td>
+              <td style="padding:4px 8px;">${T('t.itemsUnit', d.memory_summary.positive_count)}</td></tr>
+          <tr><td style="padding:4px 8px;color:var(--text-secondary);">${T('t.negCount')}</td>
+              <td style="padding:4px 8px;">${T('t.itemsUnit', d.memory_summary.negative_count)}</td></tr>
         </table>
         <div style="margin-top:12px;text-align:center;">
           <button class="control-btn resume-btn" onclick="closeLoadPopulationModal();startEvolution();">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
-            用此种群开始进化</button>
-          <button class="control-btn" onclick="closeLoadPopulationModal()">取消</button>
-        </div>
-      `;
-      showToast('✓ ' + d.message, 'success');
-    } else {
-      throw new Error(d.message);
-    }
-  })
-  .catch(err => showToast('[ERROR] ' + err.message, 'error', 5000));
-}
-
-function selectPopulationFile(path) {
-  showToast('正在加载种群...', 'info');
-  fetch('/api/load_population', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: path })
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (d.status === 'success') {
-      const summary = document.getElementById('load-population-summary');
-      summary.style.display = 'block';
-      summary.innerHTML = `
-        <strong style="color:var(--success);">${escapeHtml(d.message)}</strong><br><br>
-        <table style="width:100%;border-collapse:collapse;">
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">起始代数</td>
-              <td style="padding:4px 8px;">第 ${d.generation} 代</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">启发式数量</td>
-              <td style="padding:4px 8px;">${d.heuristic_count} 个</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">积极特征</td>
-              <td style="padding:4px 8px;">${d.memory_summary.positive_count} 条</td></tr>
-          <tr><td style="padding:4px 8px;color:var(--text-secondary);">消极特征</td>
-              <td style="padding:4px 8px;">${d.memory_summary.negative_count} 条</td></tr>
-        </table>
-        <div style="margin-top:12px;text-align:center;">
-          <button class="control-btn resume-btn" onclick="closeLoadPopulationModal();startEvolution();">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="vertical-align:-2px;margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
-            用此种群开始进化</button>
-          <button class="control-btn" onclick="closeLoadPopulationModal()">取消</button>
+            ${T('t.startWithPop')}</button>
+          <button class="control-btn" onclick="closeLoadPopulationModal()">${T('t.cancel')}</button>
         </div>
       `;
       showToast('✓ ' + d.message, 'success');
@@ -1459,3 +1570,29 @@ function escapeHtml(str) {
   d.textContent = str;
   return d.innerHTML;
 }
+
+// ── 语言切换后重绘动态内容 ────────────────────
+document.addEventListener('i18n:changed', () => {
+  // 重新翻译已渲染的种群卡片（标题/状态/特征标签）
+  const container = document.getElementById('population-container');
+  if (container && population_data?.length) {
+    renderPopulationData(population_data, current_population_index);
+  }
+  // 重新渲染当前图表
+  const resultsPage = document.getElementById('results-page');
+  if (resultsPage?.classList.contains('active') && typeof Chart !== 'undefined') {
+    renderActiveChart();
+  }
+  // 提示词编辑卡如已打开，重新渲染翻译
+  const promptCard = document.querySelector('.prompt-edit-card');
+  if (promptCard) {
+    const labels = promptCard.querySelectorAll('label');
+    if (labels.length >= 5) {
+      labels[0].textContent = T('t.funReq');
+      labels[1].textContent = T('t.mutation');
+      labels[2].textContent = T('t.hybridization');
+      labels[3].textContent = T('t.optimization');
+      labels[4].textContent = T('t.analyze');
+    }
+  }
+});

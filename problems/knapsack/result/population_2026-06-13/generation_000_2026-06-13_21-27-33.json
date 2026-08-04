@@ -1,0 +1,89 @@
+{
+  "heuristics": [
+    {
+      "concept": "该启发式基于贪心策略，在逐个物品决策时，综合考虑当前物品的“价值密度”（价值/重量）以及剩余容量的约束，优先选择单位价值高且能够装下的物品；同时引入一个随机扰动机制，以较低概率随机选择是否拿取，增加搜索多样性，避免陷入局部最优。",
+      "feature": [
+        "贪心策略",
+        "价值密度",
+        "随机扰动"
+      ],
+      "algorithm": "import numpy as np\nimport random\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 如果当前物品超出索引范围或剩余容量不足，则不拿\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n    \n    # 基础贪心决策：基于价值密度\n    # 引入随机扰动概率，避免过于贪心\n    epsilon = 0.1  # 10%的概率随机选择\n    \n    if random.random() < epsilon:\n        # 随机选择：50%拿，50%不拿（如果装得下）\n        return 1 if random.random() < 0.5 else 0\n    else:\n        # 贪心规则：如果价值密度高则拿，否则不拿\n        # 计算当前物品的价值密度\n        density = values[current_index] / weights[current_index]\n        \n        # 设定阈值：可以取所有物品的平均价值密度作为参考，或者直接用0.5比较（简单策略）\n        # 这里我们简单使用一个固定比较：如果价值密度大于1（任意可调），或者直接按照密度排序思想，\n        # 对于当前物品，采用“前瞻”思路：若拿当前物品后，剩余容量能容纳未来可能的高密度物品则拿，否则不拿\n        # 简化：若密度大于所有物品平均密度则拿\n        avg_density = np.sum(values) / np.sum(weights) if np.sum(weights) > 0 else 0\n        if density >= avg_density:\n            return 1\n        else:\n            return 0",
+      "objective": 493.5
+    },
+    {
+      "concept": "思想概念：该启发式基于“竞争性放弃”原则，通过构建一个动态的“机会成本”评估模型来决策。它不直接比较价值密度或遗憾值，而是将当前物品视为一个“竞争者”，与一个由未来最优物品构成的“虚拟联盟”进行竞争。具体地，它计算当前物品的“单位重量价值贡献度”，同时预测如果放弃当前物品，未来能够利用相同重量空间获得的“期望价值”。通过比较当前物品价值与未来期望价值的比值（称为“竞争系数”），若该系数大于一个随剩余容量和已决策次数动态调整的阈值，则选择拿取。此外，引入一个基于物品重量分布的自适应惩罚因子，避免过度选择轻量物品。该方法通过将决策转化为竞争博弈，打破了传统贪心或遗憾比较的线性思维。",
+      "feature": [
+        "竞争系数",
+        "虚拟联盟预测",
+        "自适应惩罚因子",
+        "动态阈值"
+      ],
+      "algorithm": "import numpy as np\nimport random\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 计算当前物品的单位重量价值贡献度\n    current_contribution = values[current_index] / weights[current_index] if weights[current_index] > 0 else 0\n\n    # 预测未来最优物品联盟的期望价值\n    # 从下一个物品开始，按单位价值降序排序，模拟贪婪填充剩余容量\n    future_indices = list(range(current_index + 1, num_items))\n    future_sorted = sorted(future_indices, key=lambda i: values[i]/weights[i] if weights[i] > 0 else 0, reverse=True)\n\n    future_weight_sum = 0\n    future_value_sum = 0\n    for i in future_sorted:\n        if future_weight_sum + weights[i] <= remaining_capacity:\n            future_weight_sum += weights[i]\n            future_value_sum += values[i]\n        else:\n            # 部分填充最后一个物品的剩余空间\n            remaining = remaining_capacity - future_weight_sum\n            if remaining > 0:\n                future_value_sum += (remaining / weights[i]) * values[i]\n                future_weight_sum = remaining_capacity\n            break\n\n    # 避免除零\n    if future_weight_sum == 0:\n        future_weight_sum = 1e-6\n\n    # 计算未来联盟的平均单位重量价值\n    future_avg_contribution = future_value_sum / future_weight_sum\n\n    # 计算竞争系数：当前贡献 / 未来平均贡献\n    competition_coefficient = current_contribution / (future_avg_contribution + 1e-6)\n\n    # 自适应惩罚因子：基于当前物品重量在已处理物品中的相对大小\n    # 目的：避免过度选择轻量物品\n    mean_weight = np.mean(weights[:current_index+1]) if current_index > 0 else weights[current_index]\n    weight_penalty = 1.0 + 0.1 * (weights[current_index] / (mean_weight + 1e-6))\n\n    # 动态阈值：随剩余容量减少而提高（更挑剔），随进度增加而降低（更果断）\n    capacity_ratio = remaining_capacity / (np.sum(weights) + 1e-6)\n    index_ratio = current_index / num_items\n    # 阈值公式：基础值0.8，容量剩余越少阈值越高，进度越靠后阈值越低\n    threshold = 0.8 * (1 + capacity_ratio * 0.5) * (1 - index_ratio * 0.3)\n\n    # 随机探索：以3%概率随机决策\n    if random.random() < 0.03:\n        return 1 if random.random() < 0.5 else 0\n\n    # 决策：若竞争系数经惩罚调整后大于阈值，则拿取\n    if competition_coefficient / weight_penalty > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 595.421875
+    },
+    {
+      "concept": "基于博弈论中“沙普利值”与“群体智慧”的启发式。该启发式将每个物品视为博弈中的参与者，其价值不仅取决于自身属性，更取决于它与其他物品组成的“联盟”对整体解的价值贡献。它通过计算当前物品在所有可能联盟中的“边际贡献期望”（即沙普利值近似），来评估其真正的重要性。决策时，将该物品的边际贡献期望与一个动态阈值比较，该阈值由当前已选物品的“群体智慧”决定：即已选物品的平均单位容量贡献。这种方法从根本上跳出了单个物品的局部评估，转而从全局协作视角衡量每个物品的“不可替代性”。",
+      "feature": [
+        "沙普利值近似",
+        "边际贡献期望",
+        "群体智慧阈值",
+        "联盟博弈"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n    \n    # 1. 计算当前物品的沙普利值近似（边际贡献期望）\n    # 通过蒙特卡洛采样近似：随机抽取若干子集，计算加入当前物品后的价值增量\n    num_samples = min(50, num_items - current_index - 1)  # 采样次数，控制计算量\n    marginal_contributions = []\n    \n    for _ in range(num_samples):\n        # 随机生成一个未来物品的子集（从current_index+1到末尾）\n        future_items = list(range(current_index + 1, num_items))\n        np.random.shuffle(future_items)\n        \n        # 随机决定子集大小（1到剩余物品数之间）\n        subset_size = np.random.randint(1, len(future_items) + 1)\n        subset = future_items[:subset_size]\n        \n        # 计算子集在不包含当前物品时的最优价值（简单贪心填充剩余容量）\n        temp_capacity = remaining_capacity\n        value_without = 0.0\n        for i in subset:\n            if weights[i] <= temp_capacity:\n                temp_capacity -= weights[i]\n                value_without += values[i]\n        \n        # 计算子集在包含当前物品时的最优价值\n        temp_capacity2 = remaining_capacity - weights[current_index]\n        value_with = values[current_index]\n        if temp_capacity2 >= 0:\n            for i in subset:\n                if weights[i] <= temp_capacity2:\n                    temp_capacity2 -= weights[i]\n                    value_with += values[i]\n        \n        # 边际贡献 = 包含时的价值 - 不包含时的价值\n        marginal = value_with - value_without\n        marginal_contributions.append(marginal)\n    \n    # 计算边际贡献期望（沙普利值近似）\n    shapley_value = np.mean(marginal_contributions) if marginal_contributions else 0.0\n    \n    # 2. 计算“群体智慧”阈值：基于已选物品的平均单位容量贡献\n    # 这里用当前索引之前的所有物品（包括已选和未选）的平均价值密度作为群体基准\n    if current_index > 0:\n        prev_densities = [values[i] / weights[i] if weights[i] > 0 else 0 for i in range(current_index)]\n        group_wisdom = np.mean(prev_densities)\n    else:\n        # 第一个物品，使用全局平均价值密度\n        global_densities = [values[i] / weights[i] if weights[i] > 0 else 0 for i in range(num_items)]\n        group_wisdom = np.mean(global_densities)\n    \n    # 动态阈值：基于剩余容量和当前进度调整\n    # 剩余容量越少，阈值越高（更看重边际贡献）\n    # 进度越靠后，阈值越低（更倾向于拿取）\n    capacity_ratio = remaining_capacity / (np.sum(weights) + 1e-8)\n    progress = current_index / num_items\n    # 阈值 = 群体智慧 * (1 + 容量比例调整) * (1 - 进度调整)\n    threshold = group_wisdom * (1.0 + capacity_ratio * 0.3) * (1.0 - progress * 0.5)\n    \n    # 3. 决策：若沙普利值（边际贡献期望）大于阈值，则拿取\n    if shapley_value > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 688.875
+    },
+    {
+      "concept": "基于“解构-重构”的冲突检测启发式。该启发式将0/1背包问题视为一个多阶段冲突解决过程。它不直接评估当前物品的价值或密度，而是通过分析当前物品与已选物品集合的“兼容性”来决策。具体地，它维护一个动态的“已选物品特征向量”，记录当前部分解中总重量与总价值的比例。对于当前物品，计算其加入后，该比例向量与一个理想的“最优利润-重量比率”之间的角度偏差。若角度偏差小于一个随剩余容量递减的阈值，则选择拿取。该方法通过构建解的全局几何特征来替代局部贪心或遗憾比较，从而跳出局部最优。",
+      "feature": [
+        "解构-重构",
+        "几何兼容性",
+        "动态特征向量",
+        "角度阈值"
+      ],
+      "algorithm": "import numpy as np\nfrom math import atan2, pi\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n    \n    # 维护一个全局的特征向量（可通过外部变量或重新计算，此处简化用当前选择状态模拟）\n    # 由于函数是逐次调用，我们只能基于已知的“已经做出的选择”来重建部分解特征\n    # 这里假设该函数被顺序调用，且之前的选择结果未传入。为了保持函数无状态，我们使用一个巧妙的方法：\n    # 计算当前物品与“虚拟最优解”的几何兼容性。虚拟最优解定义为：假设剩余物品按单位价值降序排列，取前k个装满容量的解。\n    \n    # 1. 构建虚拟解：从current_index开始，按单位价值降序尝试装入剩余物品（贪婪填充），作为“期望特征”\n    indices = list(range(current_index, num_items))\n    # 按单位价值降序排序\n    sorted_indices = sorted(indices, key=lambda i: values[i]/weights[i] if weights[i] > 0 else 0, reverse=True)\n    \n    expected_weight = 0.0\n    expected_value = 0.0\n    for i in sorted_indices:\n        if expected_weight + weights[i] <= remaining_capacity:\n            expected_weight += weights[i]\n            expected_value += values[i]\n        else:\n            # 分割最后一个物品（虚拟物品，用于计算特征，实际背包不允许分割，但这里仅作为方向参考）\n            fraction = (remaining_capacity - expected_weight) / weights[i]\n            expected_weight += weights[i] * fraction\n            expected_value += values[i] * fraction\n            break\n    \n    # 如果剩余容量为0，则虚拟解为原点\n    if remaining_capacity == 0 or expected_weight == 0:\n        return 0\n    \n    # 2. 计算当前物品的特征向量 (weight, value)\n    cur_vec = np.array([weights[current_index], values[current_index]])\n    # 计算虚拟解的特征向量 (weight, value)\n    exp_vec = np.array([expected_weight, expected_value])\n    \n    # 3. 计算当前物品向量与虚拟解向量的夹角（弧度）\n    # 使用atan2(y,x)计算角度，防止分母为零\n    angle_cur = atan2(cur_vec[1], cur_vec[0])  # 物品的价值重量比对应的角度\n    angle_exp = atan2(exp_vec[1], exp_vec[0])  # 虚拟解的角度\n    \n    angle_diff = abs(angle_cur - angle_exp)\n    # 归一化到0-pi之间\n    if angle_diff > pi:\n        angle_diff = 2*pi - angle_diff\n    \n    # 4. 动态阈值：基于剩余容量与当前索引\n    # 剩余容量越少，阈值越小（越挑剔），只允许方向非常一致的物品\n    # 索引越靠后，阈值越小（更严格）\n    capacity_ratio = remaining_capacity / (np.sum(weights) + 1e-6)\n    index_ratio = current_index / num_items\n    # 阈值公式：基础值 pi/4，随容量和进度减小\n    threshold = (pi/4) * (1 - capacity_ratio * 0.5) * (1 - index_ratio * 0.3)\n    \n    # 5. 决策：若角度差小于阈值，则拿取\n    if angle_diff < threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 884.03125
+    },
+    {
+      "concept": "基于时间序列动量与价值波动匹配的决策启发式",
+      "feature": [
+        "时间序列动量",
+        "价值波动匹配",
+        "基线自适应"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品的价值密度\n    current_density = values[current_index] / weights[current_index] if weights[current_index] > 0 else 0.0\n\n    # 2. 计算处理过的物品（索引0到current_index-1）的价值密度均值和标准差作为动量基线\n    if current_index > 1:\n        past_densities = [values[i] / weights[i] if weights[i] > 0 else 0.0 for i in range(current_index)]\n        past_mean = np.mean(past_densities)\n        past_std = np.std(past_densities) if len(past_densities) > 1 else 1.0\n    elif current_index == 1:\n        # 唯一历史物品\n        past_density = values[0] / weights[0] if weights[0] > 0 else 0.0\n        past_mean = past_density\n        past_std = 1.0  # 避免除零\n    else:\n        # 第一个物品，历史为空，使用全局信息初始化基线\n        global_densities = [values[i] / weights[i] if weights[i] > 0 else 0.0 for i in range(num_items)]\n        past_mean = np.mean(global_densities)\n        past_std = np.std(global_densities) if len(global_densities) > 1 else 1.0\n\n    # 3. 计算动量因子：衡量当前密度偏离历史均值的程度（以标准差为单位）\n    # 使用tanh将动量因子约束在[-1,1]之间，便于后续阈值比较\n    raw_momentum = (current_density - past_mean) / (past_std + 1e-8)\n    momentum = np.tanh(raw_momentum)  # 归一化到(-1,1)\n\n    # 4. 计算自适应基线阈值\n    # 基于剩余容量比例和已选物品重量修正\n    total_weight_so_far = np.sum(weights[:current_index])  # 已处理的物品总重（包括未选的，作为总体进度指标）\n    # 剩余容量比例\n    capacity_ratio = remaining_capacity / (np.sum(weights) + 1e-8)\n    # 已处理进度\n    progress = current_index / num_items\n    # 基线阈值公式：核心允许的动量大小，随容量剩余减少和进度增加而降低（更挑剔）\n    # 基础阈值0.3，乘以一个与剩余容量成正比的因子，再乘以一个与进度成反比的因子\n    base_threshold = 0.3 * (1.0 - progress * 0.7) * (1.0 + capacity_ratio * 0.5)\n\n    # 5. 决策规则：\n    # 若动量因子为正（密度高于历史均值）且超出正向阈值，或动量因子为负（密度低于历史均值）但绝对值超出负向阈值则放弃\n    # 简化：只当动量因子大于一个正基线阈值时拿取，体现“追涨”策略\n    if momentum > base_threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 2377.8125
+    },
+    {
+      "concept": "该启发式基于“遗憾最小化”原则，通过评估当前物品的潜在价值损失来决策。它计算当前物品的单位价值，并预测如果不拿该物品，未来可能因容量不足而错过的最大单位价值。通过比较当前物品与未来最优物品的价值差异，若当前物品的价值损失（即遗憾值）低于动态阈值，则选择拿取。该阈值随剩余容量和已选物品数量自适应调整，避免过早或过晚决策。同时，引入小概率的随机探索，防止过于保守。",
+      "feature": [
+        "遗憾最小化",
+        "前瞻预测",
+        "自适应阈值",
+        "随机探索"
+      ],
+      "algorithm": "import numpy as np\nimport random\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 如果当前物品超范围或装不下，直接返回0\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 计算当前物品的单位价值\n    current_value_per_weight = values[current_index] / weights[current_index]\n\n    # 预测未来物品的最高单位价值（从当前索引+1开始到结束，考虑容量限制）\n    future_max_per_weight = 0.0\n    for i in range(current_index + 1, num_items):\n        if weights[i] <= remaining_capacity:\n            future_max_per_weight = max(future_max_per_weight, values[i] / weights[i])\n\n    # 计算遗憾值：如果当前物品的单位价值低于未来最佳，则遗憾为正\n    regret = future_max_per_weight - current_value_per_weight\n\n    # 自适应阈值：基于剩余容量和当前索引动态调整\n    # 剩余容量越小，对遗憾越敏感（阈值越低），避免浪费空间\n    # 当前索引越靠后，越倾向于拿（阈值降低）\n    capacity_ratio = remaining_capacity / (np.sum(weights) + 1e-6)  # 剩余容量占比\n    index_ratio = current_index / num_items  # 当前进度\n    # 阈值公式：基础值为0.2，随容量减少和进度增加而降低\n    threshold = 0.2 * (1 - capacity_ratio) * (1 - index_ratio)\n\n    # 随机探索：以5%概率随机决策\n    if random.random() < 0.05:\n        return 1 if random.random() < 0.5 else 0\n\n    # 若遗憾值低于阈值，则拿取该物品\n    if regret < threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 3196.015625
+    },
+    {
+      "concept": "基于概率共振与容量熵的决策启发式。该启发式将背包容量视为一个“能量场”，每个物品的加入会改变场的“熵值”。通过计算当前物品的重量与剩余容量构成的“容量共振频率”，以及该物品价值与已选物品总价值的“价值波动相位差”，判断是否形成共振。当共振强度超过一个随剩余容量衰减的动态阈值时，选择拿取。该启发式不依赖价值密度或未来预测，而是通过构建一个虚拟的物理系统模拟来决策，从根本上避免贪心、遗憾、几何或动量等常见范式的线性思维。",
+      "feature": [
+        "容量熵",
+        "概率共振",
+        "相位差检测",
+        "动态衰减阈值"
+      ],
+      "algorithm": "import numpy as np\nimport math\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品的“容量共振频率”：物品重量与剩余容量的比值，表征能量扰动程度\n    if remaining_capacity > 0:\n        freq = weights[current_index] / remaining_capacity\n    else:\n        freq = 0.0\n\n    # 2. 计算“价值波动相位差”：当前物品价值与已选物品总价值的相对相位\n    # 使用正弦函数模拟相位差，避免线性依赖\n    # 已选物品总价值（假设通过外部累积，此处通过模拟历史选择状态近似）\n    # 由于函数无状态，使用当前索引之前的所有物品价值均值作为基线\n    if current_index > 0:\n        past_values_mean = np.mean(values[:current_index])\n        past_values_std = np.std(values[:current_index]) if current_index > 1 else 1.0\n    else:\n        past_values_mean = 0.0\n        past_values_std = 1.0\n\n    # 计算相位差：值越大表示偏离基线越远\n    if past_values_std > 0:\n        phase_diff = (values[current_index] - past_values_mean) / (past_values_std + 1e-8)\n    else:\n        phase_diff = 0.0\n    # 使用正弦函数将相位差映射到[-1,1]，表示共振相位匹配度\n    phase_match = math.sin(phase_diff * math.pi / 2)  # 在相位差为0时取得最大值1\n\n    # 3. 计算容量熵：剩余容量的均匀性度量（熵值越大不确定性越高，越应谨慎决策）\n    # 用剩余容量占初始总容量的比例构造熵因子\n    total_capacity = np.sum(weights)  # 假设初始背包容量为所有物品总重（实际不重要，仅作归一化）\n    if total_capacity > 0:\n        capacity_ratio = remaining_capacity / total_capacity\n    else:\n        capacity_ratio = 0.0\n    # 熵的模拟：当剩余容量接近满或接近空时熵低，中间时熵高\n    # 使用 beta 分布形状近似：4 * ratio * (1-ratio)\n    entropy = 4 * capacity_ratio * (1 - capacity_ratio)\n\n    # 4. 计算共振强度：频率与相位匹配的乘积，再经熵调制\n    resonance_strength = freq * phase_match\n    # 熵作为调制因子：熵高时需求更大的共振强度才能拿取\n    modulated_strength = resonance_strength / (entropy + 1e-8)\n\n    # 5. 动态衰减阈值：随剩余容量递减，随当前索引递增（后阶段更严格）\n    progress = current_index / num_items\n    threshold = 0.5 * (1 - progress * 0.6) * (remaining_capacity / (np.sum(weights) + 1e-8) + 0.1)\n\n    # 6. 决策：若调制后的共振强度大于阈值，则拿取\n    if modulated_strength > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 3593.078125
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": [
+      [
+        "信息熵评估",
+        "协同矩阵",
+        "自适应熵阈值"
+      ]
+    ]
+  }
+}

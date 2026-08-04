@@ -1,0 +1,175 @@
+{
+  "heuristics": [
+    {
+      "concept": "本启发式在现有积极经验的基础上进行优化，重点融合了“轻量级机会成本评估”与“动态稀缺性平衡”的核心思想。通过计算当前物品的相对稀缺性（价值占比与重量占比之比）作为核心评分，并引入基于剩余容量比例和位置权重的“动态保守阈值”进行决策，避免了复杂的冲突度模拟或贪心前瞻。同时，利用价值密度比对评分进行加权，增强对高价值密度物品的倾向性，并通过轻量级机会成本修正（检查拿取后剩余容量是否导致碎片化）对阈值进行微调。该方法在保持决策质量的同时显著降低了计算复杂度，尤其适用于大规模问题。",
+      "feature": [
+        "轻量级机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重",
+        "价值密度比加权",
+        "容量碎片化修正"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 计算剩余物品的总价值和总重量（从当前索引到末尾）\n    remaining_values = values[current_index:]\n    remaining_weights = weights[current_index:]\n    total_remaining_value = np.sum(remaining_values)\n    total_remaining_weight = np.sum(remaining_weights)\n\n    if total_remaining_weight == 0:\n        return 1\n\n    # 价值密度\n    density = v / w\n\n    # 相对稀缺性指标：价值占比 vs 重量占比\n    value_ratio = v / total_remaining_value if total_remaining_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 位置权重：越靠后的物品，决策越保守\n    position_factor = 1.0 - (current_index / num_items) * 0.3  # 范围 0.7~1.0\n\n    # 价值密度比：当前物品密度相对于剩余物品平均密度的比值\n    avg_density = total_remaining_value / total_remaining_weight if total_remaining_weight > 0 else density\n    density_ratio = density / (avg_density + 1e-8)\n\n    # 动态保守阈值：基于剩余容量比例、位置权重和密度比调整\n    total_capacity = np.sum(weights) + 1e-8\n    capacity_ratio = remaining_capacity / total_capacity\n    # 基础阈值随容量紧张而提高，密度比高时略微降低阈值（更激进）\n    base_conservatism = 0.5 + 0.3 * (1.0 - capacity_ratio) * position_factor\n    # 当密度比显著高于1时，降低阈值以鼓励拿取\n    threshold = base_conservatism - 0.1 * min(density_ratio - 1.0, 0.5)  # 最多降低0.05\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 轻量级机会成本修正：检查拿取后剩余容量是否导致碎片化\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0 and remaining_capacity - w > 0:\n        min_future_weight = np.min(future_weights)\n        if remaining_capacity - w < min_future_weight:\n            threshold += 0.1  # 碎片化严重，提高阈值\n\n    # 最终评分：相对稀缺性乘以价值密度比（增强高密度优势）\n    score = scarcity * density_ratio\n\n    # 决策\n    return 1 if score > threshold else 0",
+      "objective": 375.609375
+    },
+    {
+      "concept": "思想概念：基于“轻量级机会成本与动态稀缺性平衡”的启发式。本启发式通过计算当前物品在剩余容量中的“相对稀缺性”（价值占比与重量占比之比）作为核心决策依据，并引入一个基于剩余容量比例和当前索引的“动态保守阈值”，无需复杂的冲突度模拟或贪心前瞻，从而在保持决策质量的同时显著降低计算复杂度。核心改进在于使用“价值密度比”对稀缺性进行加权，增强对高价值密度物品的倾向性，同时利用位置权重和容量紧张度动态调整阈值，避免早期过度消费容量或后期错失良机。",
+      "feature": [
+        "机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重",
+        "价值密度比加权"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 计算剩余物品的总价值和总重量（从当前索引到末尾）\n    remaining_values = values[current_index:]\n    remaining_weights = weights[current_index:]\n    total_remaining_value = np.sum(remaining_values)\n    total_remaining_weight = np.sum(remaining_weights)\n\n    if total_remaining_weight == 0:\n        return 1\n\n    # 价值密度\n    density = v / w\n\n    # 相对稀缺性指标：价值占比 vs 重量占比\n    value_ratio = v / total_remaining_value if total_remaining_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 位置权重：越靠后的物品，决策越保守\n    position_factor = 1.0 - (current_index / num_items) * 0.3  # 范围 0.7~1.0\n\n    # 价值密度比：当前物品密度相对于剩余物品平均密度的比值\n    avg_density = total_remaining_value / total_remaining_weight if total_remaining_weight > 0 else density\n    density_ratio = density / (avg_density + 1e-8)\n\n    # 动态保守阈值：基于剩余容量比例、位置权重和密度比调整\n    capacity_ratio = remaining_capacity / (np.sum(weights) + 1e-8)\n    # 基础阈值随容量紧张而提高，密度比高时略微降低阈值（更激进）\n    base_conservatism = 0.5 + 0.3 * (1.0 - capacity_ratio) * position_factor\n    # 当密度比显著高于1时，降低阈值以鼓励拿取\n    threshold = base_conservatism - 0.1 * min(density_ratio - 1.0, 0.5)  # 最多降低0.05\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 最终评分：相对稀缺性乘以价值密度比（增强高密度优势）\n    score = scarcity * density_ratio\n\n    # 决策\n    return 1 if score > threshold else 0",
+      "objective": 375.65625
+    },
+    {
+      "concept": "本启发式在已有积极经验基础上进行精简与优化，核心思想是：通过“轻量级机会成本评估”替代完整的贪心模拟，计算当前物品的相对稀缺性（价值占比与重量占比之比）作为核心评分，并引入一个基于剩余容量比例和当前索引位置的“动态保守系数”来调整决策阈值，避免过度复杂的冲突度计算或前瞻模拟。该方法在保持决策质量的同时显著降低计算复杂度，尤其适用于需要快速响应的场景。",
+      "feature": [
+        "机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 计算剩余物品的总价值和总重量（从当前索引到末尾）\n    remaining_values = values[current_index:]\n    remaining_weights = weights[current_index:]\n    total_remaining_value = np.sum(remaining_values)\n    total_remaining_weight = np.sum(remaining_weights)\n\n    if total_remaining_weight == 0:\n        return 1\n\n    # 价值密度\n    density = v / w\n\n    # 相对稀缺性指标：价值占比 vs 重量占比\n    value_ratio = v / total_remaining_value if total_remaining_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 位置权重：越靠后的物品，决策越保守\n    position_factor = 1.0 - (current_index / num_items) * 0.3  # 范围 0.7~1.0\n\n    # 动态保守系数：基于剩余容量比例和位置权重\n    # 容量越紧张，系数越高（越保守）\n    capacity_ratio = remaining_capacity / np.sum(weights) if np.sum(weights) > 0 else 1\n    conservatism = 0.5 + 0.3 * (1.0 - capacity_ratio) * position_factor  # 阈值范围 0.5~0.8\n\n    # 最终评分：相对稀缺性乘以价值密度与平均密度的比值\n    avg_density = total_remaining_value / total_remaining_weight\n    density_ratio = density / avg_density if avg_density > 0 else 1\n    score = scarcity * density_ratio\n\n    # 决策\n    return 1 if score > conservatism else 0",
+      "objective": 391.5
+    },
+    {
+      "concept": "本启发式融合了“相对稀缺性”与“动态分阶段阈值”的核心思想，并引入“轻量级机会成本修正”来替代完整的冲突度模拟。首先计算当前物品的价值密度与剩余物品平均密度之比，以及其价值占比与重量占比之比（稀缺性），形成基础评分。然后，基于剩余容量比例动态划分决策阶段（充裕/中等/紧张），为每个阶段设定不同的阈值基值，并结合当前位置权重与密度比进行微调。最后，通过一个简化的机会成本修正项（仅考虑拿取后剩余容量与后续物品最小重量的关系）对阈值进行小幅调整，避免容量碎片化。该方法在保持决策质量的同时，大幅降低了计算复杂度，尤其适用于大规模问题。",
+      "feature": [
+        "相对稀缺性",
+        "动态分阶段阈值",
+        "轻量级机会成本修正",
+        "位置权重",
+        "价值密度比加权"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品统计\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # 价值密度与稀缺性\n    density = v / w\n    avg_density = total_rem_value / total_rem_weight if total_rem_weight > 0 else density\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n    density_ratio = density / (avg_density + 1e-8)\n\n    # 位置权重：越靠后越保守\n    pos_factor = 1.0 - (current_index / num_items) * 0.3\n\n    # 容量阶段划分（总容量用所有物品总重近似）\n    total_capacity = np.sum(weights)\n    cap_ratio = remaining_capacity / total_capacity if total_capacity > 0 else 1.0\n    if cap_ratio > 0.7:\n        base_threshold = 0.5\n    elif cap_ratio > 0.3:\n        base_threshold = 0.65\n    else:\n        base_threshold = 0.8\n\n    # 动态阈值调整\n    threshold = base_threshold * pos_factor + 0.1 * (1.0 - cap_ratio)\n    # 密度比优势降低阈值\n    threshold -= 0.1 * min(density_ratio - 1.0, 0.5)\n\n    # 轻量级机会成本修正：检查拿取后剩余容量是否太碎片化\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0 and remaining_capacity - w > 0:\n        min_future_weight = np.min(future_weights)\n        if remaining_capacity - w < min_future_weight:\n            threshold += 0.1  # 碎片化严重，提高阈值\n\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 评分与决策\n    score = scarcity * density_ratio\n    return 1 if score > threshold else 0",
+      "objective": 415.46875
+    },
+    {
+      "concept": "新启发式融合了积极经验中的“机会成本评估”、“相对稀缺性”、“动态分阶段阈值”与“容量碎片化感知”，同时规避了消极经验中复杂的“深度冲突度评估”和“全局稀缺性量化”。核心思想是：通过轻量级计算当前物品在剩余容量中的相对稀缺性（价值占比/重量占比）作为基础评分，并利用价值密度比进行加权增强。同时，引入基于剩余容量比例的三阶段动态基础阈值，并结合位置权重和轻量级容量碎片化修正（检查拿取后剩余容量是否低于后续物品最小重量的一定比例）来微调阈值。该方法在保持决策质量的同时，通过避免完整的贪心模拟显著降低了计算复杂度，适合大规模问题。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态分阶段阈值",
+        "价值密度比加权",
+        "容量碎片化修正",
+        "位置权重"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 计算剩余物品的总价值和总重量\n    remaining_values = values[current_index:]\n    remaining_weights = weights[current_index:]\n    total_remaining_value = np.sum(remaining_values)\n    total_remaining_weight = np.sum(remaining_weights)\n\n    if total_remaining_weight == 0:\n        return 1\n\n    # 价值密度及相关指标\n    density = v / w\n    avg_density = total_remaining_value / total_remaining_weight if total_remaining_weight > 0 else density\n    density_ratio = density / (avg_density + 1e-8)\n\n    # 相对稀缺性指标：价值占比 vs 重量占比\n    value_ratio = v / total_remaining_value if total_remaining_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 综合评分：稀缺性乘以密度比\n    score = scarcity * density_ratio\n\n    # 位置权重：越靠后越保守，范围 [0.7, 1.0]\n    position_factor = 1.0 - (current_index / num_items) * 0.3\n\n    # 分阶段动态阈值\n    total_capacity = np.sum(weights)\n    cap_ratio = remaining_capacity / total_capacity if total_capacity > 0 else 1.0\n    if cap_ratio > 0.7:\n        base_threshold = 0.5\n    elif cap_ratio > 0.3:\n        base_threshold = 0.65\n    else:\n        base_threshold = 0.8\n\n    # 阈值调整：位置权重 + 容量紧张惩罚 + 密度优势微调\n    threshold = base_threshold * position_factor + 0.1 * (1.0 - cap_ratio)\n    threshold -= 0.05 * min(density_ratio - 1.0, 1.0)  # 密度优势降低阈值\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 轻量级容量碎片化修正：若拿取后剩余容量太小，提高阈值\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0:\n        cap_after = remaining_capacity - w\n        # 如果剩余容量小于后续最小物品重量的一半，认为碎片化严重\n        if cap_after > 0 and cap_after < np.min(future_weights) * 0.5:\n            threshold += 0.1\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 决策\n    return 1 if score > threshold else 0",
+      "objective": 423.390625
+    },
+    {
+      "concept": "基于研究经验，本启发式融合了积极经验中的“相对稀缺性”、“机会成本评估”和“动态分阶段阈值”，同时规避了消极经验中的复杂冲突度评估与全局稀缺性量化。核心改进是采用“轻量级机会成本修正”替代完整的贪心模拟，仅通过检查拿取后剩余容量与后续最小物品重量的关系来感知容量碎片化风险。评分方面，使用价值密度比加权后的相对稀缺性作为核心指标，并引入基于剩余容量比例的三阶段动态阈值，结合位置权重和密度优势微调。该设计在保持决策质量的同时，显著降低了计算复杂度。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态分阶段阈值",
+        "价值密度比加权",
+        "容量碎片化修正",
+        "位置权重"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 计算剩余物品的总价值和总重量\n    remaining_values = values[current_index:]\n    remaining_weights = weights[current_index:]\n    total_remaining_value = np.sum(remaining_values)\n    total_remaining_weight = np.sum(remaining_weights)\n\n    if total_remaining_weight == 0:\n        return 1\n\n    # 价值密度及相关指标\n    density = v / w\n    avg_density = total_remaining_value / total_remaining_weight if total_remaining_weight > 0 else density\n    density_ratio = density / (avg_density + 1e-8)\n\n    # 相对稀缺性指标：价值占比 vs 重量占比\n    value_ratio = v / total_remaining_value if total_remaining_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 综合评分：稀缺性乘以密度比\n    score = scarcity * density_ratio\n\n    # 位置权重：越靠后越保守，范围 [0.7, 1.0]\n    position_factor = 1.0 - (current_index / num_items) * 0.3\n\n    # 分阶段动态阈值\n    total_capacity = np.sum(weights)\n    cap_ratio = remaining_capacity / total_capacity if total_capacity > 0 else 1.0\n    if cap_ratio > 0.7:\n        base_threshold = 0.5\n    elif cap_ratio > 0.3:\n        base_threshold = 0.65\n    else:\n        base_threshold = 0.8\n\n    # 阈值调整：位置权重 + 容量紧张惩罚 + 密度优势微调\n    threshold = base_threshold * position_factor + 0.1 * (1.0 - cap_ratio)\n    threshold -= 0.05 * min(density_ratio - 1.0, 1.0)  # 密度优势降低阈值\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 轻量级容量碎片化修正：若拿取后剩余容量太小，提高阈值\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0:\n        cap_after = remaining_capacity - w\n        # 如果剩余容量小于后续最小物品重量的一半，认为碎片化严重\n        if cap_after > 0 and cap_after < np.min(future_weights) * 0.5:\n            threshold += 0.1\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 决策\n    return 1 if score > threshold else 0",
+      "objective": 423.390625
+    },
+    {
+      "concept": "本启发式基于“轻量级稀缺性感知与动态分阶段阈值”的核心思想。首先，通过计算当前物品相对于剩余物品的价值密度比与相对稀缺性（价值占比/重量占比）的乘积作为综合评分，以评估其即时优势。其次，采用基于剩余容量比例的三阶段动态阈值，并结合位置权重（越靠后越保守）与容量碎片化修正（检查拿取后剩余容量是否过小）来动态调整决策标准。设计上避免了复杂的贪心模拟与全局计算，在保持决策质量的同时，显著降低了计算复杂度，适用于大规模物品集。",
+      "feature": [
+        "轻量级稀缺性评估",
+        "价值密度比加权",
+        "动态分阶段阈值",
+        "容量碎片化修正",
+        "位置权重"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n    if current_index == num_items - 1:\n        return 1\n\n    # 计算剩余物品的总价值和总重量（包括当前）\n    remaining_values = values[current_index:]\n    remaining_weights = weights[current_index:]\n    total_rem_value = np.sum(remaining_values)\n    total_rem_weight = np.sum(remaining_weights)\n\n    if total_rem_weight == 0:\n        return 1\n\n    # 1. 计算价值密度比\n    current_density = v / w\n    avg_rem_density = total_rem_value / total_rem_weight if total_rem_weight > 0 else current_density\n    density_ratio = current_density / (avg_rem_density + 1e-8)\n\n    # 2. 计算相对稀缺性\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 3. 综合评分\n    score = scarcity * density_ratio\n\n    # 4. 位置权重 (越靠后越保守)\n    position_factor = 1.0 - (current_index / num_items) * 0.3\n\n    # 5. 动态分阶段阈值\n    total_capacity = np.sum(weights) + 1e-8\n    cap_ratio = remaining_capacity / total_capacity\n    if cap_ratio > 0.7:\n        base_threshold = 0.5\n    elif cap_ratio > 0.3:\n        base_threshold = 0.65\n    else:\n        base_threshold = 0.8\n\n    # 6. 阈值调整\n    threshold = base_threshold * position_factor + 0.1 * (1.0 - cap_ratio)\n    threshold -= 0.05 * min(density_ratio - 1.0, 1.0)  # 密度优势降低阈值\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    # 7. 轻量级容量碎片化修正\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0:\n        cap_after = remaining_capacity - w\n        if cap_after > 0 and cap_after < np.min(future_weights) * 0.5:\n            threshold += 0.1\n    threshold = np.clip(threshold, 0.3, 0.9)\n\n    return 1 if score > threshold else 0",
+      "objective": 423.390625
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "机会成本评估",
+        "动态阈值",
+        "相对稀缺性"
+      ],
+      [
+        "潜在机会成本",
+        "多目标冲突度",
+        "动态分阶段阈值",
+        "离散度修正"
+      ],
+      [
+        "冲突度评估",
+        "动态评分",
+        "容量碎片化感知",
+        "非线性融合阈值",
+        "前瞻模拟微调"
+      ],
+      [
+        "轻量级机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重",
+        "价值密度比加权",
+        "容量碎片化修正"
+      ],
+      [
+        "机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重",
+        "价值密度比加权"
+      ],
+      [
+        "机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重"
+      ]
+    ],
+    "negative_features": [
+      [
+        "深度冲突度评估",
+        "双维度熵权分析",
+        "全局稀缺性量化",
+        "三级分段自适应阈值",
+        "容量紧张非线性惩罚",
+        "轻量级前瞻微调"
+      ],
+      [
+        "矛盾归因分析",
+        "动态补偿因子",
+        "历史满意度反馈"
+      ],
+      [
+        "局部密度窗口",
+        "记忆回退机制",
+        "动态排名阈值",
+        "容量浪费惩罚"
+      ],
+      [
+        "价值密度快速筛选",
+        "冲突度评估",
+        "容量碎片化感知",
+        "双阶段脉冲决策",
+        "敏捷动态阈值"
+      ],
+      [
+        "概率匹配",
+        "可行域收缩",
+        "容量占用效率",
+        "期望边际价值",
+        "非线性概率决策"
+      ],
+      [
+        "抗干扰鲁棒性评分",
+        "剩余空间匹配度",
+        "价值动量",
+        "风险补偿因子",
+        "非线性动态阈值"
+      ]
+    ]
+  }
+}

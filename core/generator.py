@@ -15,15 +15,17 @@ class generator():
     def __init__(self,
                  api_key, base_url, llm_model, if_stream,
                  problem_path, train_data_name, train_solution_name,
-                 problem, fun_name, fun_args, fun_return, fun_notes):
+                 problem, fun_name, fun_args, fun_return, fun_notes,
+                 lang='zh'):
 
         self.problem_path = problem_path
         self.train_data_name = train_data_name
         self.train_solution_name = train_solution_name
         self.fun_name = fun_name
+        self.lang = lang
 
         self.interface = llm_interface(api_key, base_url, llm_model, if_stream)
-        self.prompt_template = prompt_template(problem, fun_name, fun_args, fun_return, fun_notes)
+        self.prompt_template = prompt_template(problem, fun_name, fun_args, fun_return, fun_notes, lang=lang)
 
     def get_heuristic(self, heuristic_string):
         """使用 prompt_template 中的标准化解析"""

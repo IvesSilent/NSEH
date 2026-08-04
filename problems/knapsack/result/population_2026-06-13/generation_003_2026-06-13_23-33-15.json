@@ -1,0 +1,190 @@
+{
+  "heuristics": [
+    {
+      "concept": "基于博弈对抗与机会成本补偿的启发式。将背包决策视为与“虚拟对手”的零和博弈：对手试图在剩余空间中放置最大化价值密度的物品组合来“击败”当前决策。通过构建一个“对抗性价值函数”来评估拿取当前物品后，对手在剩余容量中能获得的最大价值补偿，以及放弃时自己从后续物品中能获得的最大期望价值。引入“机会成本补偿因子”动态调整决策，当当前物品密度高于对手最优替代品密度的某个阈值时拿取，反之则放弃。同时采用“边际效用递减惩罚”避免过度集中拿取同类型物品。该启发式不同于传统价值密度或生态位方法，而是从对抗性决策和机会成本博弈角度出发。",
+      "feature": [
+        "对抗性价值函数",
+        "机会成本补偿因子",
+        "边际效用递减惩罚",
+        "虚拟对手建模",
+        "动态补偿阈值"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # 获取未来物品\n    future_indices = np.arange(current_index + 1, num_items)\n    if len(future_indices) == 0:\n        return 1 if density_i > 0 else 0\n\n    future_weights = weights[future_indices]\n    future_values = values[future_indices]\n    feasible_mask = future_weights <= remaining_capacity\n    if not np.any(feasible_mask):\n        return 1 if density_i > 0 else 0\n\n    feasible_w = future_weights[feasible_mask]\n    feasible_v = future_values[feasible_mask]\n    \n    # 1. 构建虚拟对手：在剩余容量中寻找最优替代物品组合（近似贪心）\n    # 对手在剩余容量中按密度从大到小尝试拿取\n    future_densities = feasible_v / (feasible_w + 1e-8)\n    sorted_indices = np.argsort(-future_densities)  # 按密度降序\n    opponent_capacity = remaining_capacity\n    opponent_value = 0.0\n    for idx in sorted_indices:\n        w = feasible_w[idx]\n        if w <= opponent_capacity:\n            opponent_value += feasible_v[idx]\n            opponent_capacity -= w\n    \n    # 对手在拿取当前物品后的剩余容量中的表现\n    residual_capacity = remaining_capacity - w_i\n    opponent_value_after = 0.0\n    if residual_capacity > 0:\n        residual_mask = feasible_w <= residual_capacity\n        if np.any(residual_mask):\n            residual_w = feasible_w[residual_mask]\n            residual_v = feasible_v[residual_mask]\n            residual_densities = residual_v / (residual_w + 1e-8)\n            sorted_indices_res = np.argsort(-residual_densities)\n            cap = residual_capacity\n            for idx in sorted_indices_res:\n                w = residual_w[idx]\n                if w <= cap:\n                    opponent_value_after += residual_v[idx]\n                    cap -= w\n\n    # 2. 计算机会成本补偿因子\n    # 放弃当前物品的机会成本 = 对手在完整剩余空间中可能获得的价值\n    opportunity_cost = opponent_value - opponent_value_after\n    # 补偿因子 = 当前价值 / (机会成本 + 1)\n    compensation_factor = v_i / (opportunity_cost + 1e-8)\n    \n    # 3. 计算边际效用递减惩罚\n    # 统计已拿取物品中与当前物品重量相近的数量（重量偏差<20%）\n    similar_count = 0\n    for idx in range(current_index):\n        if weights[idx] > 0 and abs(weights[idx] - w_i) / w_i < 0.2:\n            similar_count += 1\n    diminishing_penalty = similar_count * 0.05  # 每有一个相似物品惩罚0.05\n    diminishing_penalty = min(diminishing_penalty, 0.3)  # 最大惩罚0.3\n    \n    # 4. 计算动态补偿阈值\n    # 阈值基于剩余物品的密度分布和位置\n    if len(feasible_w) > 1:\n        mean_density_future = np.mean(future_densities)\n        std_density_future = np.std(future_densities)\n        # 阈值：平均值 - 0.5*标准差，再根据位置调整\n        threshold = mean_density_future - 0.3 * std_density_future\n        position_ratio = current_index / num_items\n        threshold = threshold * (1.0 + 0.2 * position_ratio)  # 后期阈值升高\n    else:\n        threshold = density_i * 0.7  # 只有一个时降低阈值\n    \n    # 5. 考虑对手的“反击”能力：对手在剩余容量中能获得的平均密度\n    opponent_avg_density = opponent_value / (remaining_capacity + 1e-8)\n    \n    # 6. 综合决策评分\n    # 适用当前密度与对手段密度对比，结合补偿因子和边际效用惩罚\n    if opponent_avg_density > 0:\n        density_ratio = density_i / opponent_avg_density\n    else:\n        density_ratio = 2.0  # 对手无威胁时直接拿取\n    \n    score = density_ratio * compensation_factor - diminishing_penalty\n    \n    # 7. 决策规则\n    decision = 1 if score > 0.8 else 0  # 基础阈值0.8\n    \n    # 安全规则：如果当前密度显著高于对手平均密度且无惩罚，强制拿取\n    if density_ratio > 1.5 and diminishing_penalty < 0.1:\n        decision = 1\n    \n    # 强否决：如果补偿因子极低且密度低，放弃\n    if compensation_factor < 0.5 and density_ratio < 0.7:\n        decision = 0\n    \n    return decision",
+      "objective": 177.828125
+    },
+    {
+      "concept": "基于能量守恒与熵增抑制的启发式。核心思想借鉴热力学中的能量最小化与系统熵增原理，将背包决策视为能量（价值）与约束（容量）之间的动态平衡。每个物品决策点，通过计算“取/不取”后的系统“能量势差”和“熵值变化”——能量势差衡量价值密度的边际收益与容量消耗的边际成本之比，熵值变化衡量当前决策对剩余物品排列有序度（即容量碎片化程度）的影响。通过构建一个“自由能评分函数”，综合能量势差和熵抑制项，并引入一个基于剩余容量波动率的“温度参数”，动态调节决策的探索与利用程度。当系统自由能高（低熵高能）时倾向拿取，反之则等待。该启发式避免了传统贪心对密度单一维度的依赖，也不同于拍卖或统计预测，而是从物理系统约束出发，强调决策对系统整体有序性的长期影响。",
+      "feature": [
+        "能量势差评分",
+        "熵增抑制项",
+        "自由能决策函数",
+        "温度参数调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # --- 1. 计算剩余物品的“系统熵”估计 ---\n    # 剩余物品的重量分布越均匀，熵越低；越混乱（方差大），熵越高\n    future_indices = np.arange(current_index + 1, num_items)\n    if len(future_indices) > 0:\n        future_weights = weights[future_indices]\n        future_values = values[future_indices]\n        feasible_mask = future_weights <= remaining_capacity\n        if np.any(feasible_mask):\n            feasible_w = future_weights[feasible_mask]\n            feasible_v = future_values[feasible_mask]\n            # 归一化重量分布用于计算熵\n            if len(feasible_w) > 1 and np.sum(feasible_w) > 0:\n                prob_w = feasible_w / np.sum(feasible_w)\n                entropy_current = -np.sum(prob_w * np.log(prob_w + 1e-12)) / np.log(len(feasible_w) + 1e-12)\n            else:\n                entropy_current = 0.0\n        else:\n            entropy_current = 0.0\n    else:\n        entropy_current = 0.0\n\n    # --- 2. 计算“能量势差” ---\n    # 能量势差 = (价值密度) / (1 + 容量占用率 * 温度参数)\n    capacity_occupancy = w_i / (remaining_capacity + 1e-8)\n    # 温度参数：基于剩余容量波动率动态调整\n    if len(future_indices) > 1:\n        future_w_var = np.var(weights[future_indices]) if len(weights[future_indices]) > 1 else 0.0\n        temperature = 1.0 / (1.0 + np.log(1.0 + future_w_var))  # 波动越大温度越低，越保守\n    else:\n        temperature = 1.0\n    energy_potential = density_i / (1.0 + capacity_occupancy * temperature)\n\n    # --- 3. 计算“熵增抑制项” ---\n    # 拿取后剩余容量的碎片化程度 = 剩余容量与未来物品平均重量的适配度\n    # 如果拿取后剩余容量远小于未来物品平均重量，则熵增（混乱度增加），应抑制\n    if len(future_indices) > 0 and np.any(feasible_mask):\n        mean_future_w = np.mean(feasible_w) if len(feasible_w) > 0 else 0.0\n        if mean_future_w > 0:\n            residual_ratio = (remaining_capacity - w_i) / mean_future_w\n            if residual_ratio < 0.3:  # 剩余容量小于未来平均重量的30%，碎片化严重\n                entropy_penalty = 0.5 * (0.3 - residual_ratio) / 0.3\n            else:\n                entropy_penalty = 0.0\n        else:\n            entropy_penalty = 0.0\n    else:\n        entropy_penalty = 0.0\n\n    # --- 4. 综合“自由能评分” ---\n    # 自由能 = 能量势差 - 熵增抑制项 * 当前熵值\n    free_energy = energy_potential - entropy_penalty * (1.0 - entropy_current)\n\n    # --- 5. 决策规则 ---\n    # 动态阈值：根据剩余容量比例和物品进度调整\n    position_ratio = current_index / num_items\n    # 前期阈值较低鼓励探索（拿取），后期阈值较高鼓励利用（保留容量给高价值）\n    threshold = 0.6 - 0.3 * position_ratio + 0.1 * temperature\n\n    decision = 1 if free_energy > threshold else 0\n\n    # 安全保护：如果剩余容量充足且密度显著高于平均，强制拿取\n    if len(future_indices) > 0 and np.any(feasible_mask):\n        avg_density_future = np.mean(feasible_v / (feasible_w + 1e-8))\n        if remaining_capacity >= 2.5 * w_i and density_i > 0.7 * avg_density_future:\n            decision = 1\n\n    return decision",
+      "objective": 438.625
+    },
+    {
+      "concept": "思想概念：基于动态竞争排斥与生态位适配的启发式。将背包决策类比为生态系统中物种（物品）对有限资源（容量）的竞争。每个物品的“生态位”由其重量和价值密度定义。决策时，评估当前物品与剩余物品的“生态位重叠度”——重量和价值密度的相似性会导致资源竞争，产生排斥力。同时，计算当前物品的“环境容纳量潜力”——即其占据容量后，剩余空间对后续物品的整体适配度（类似于生态系统的可持续产出）。通过构建一个“竞争排斥评分”，综合排斥力与容纳潜力，并引入一个基于剩余容量分布熵的“环境扰动因子”来模拟生态系统的动态平衡。该启发式避免了传统基于密度的单向优化，强调利用物品间的差异化策略来填充容量，类似于生态多样性原理。",
+      "feature": [
+        "生态位重叠度计算",
+        "竞争排斥评分",
+        "环境容纳量潜力",
+        "剩余空间分布熵",
+        "动态环境扰动因子"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # 获取未来物品\n    future_indices = np.arange(current_index + 1, num_items)\n    if len(future_indices) == 0:\n        return 1 if density_i > 0 else 0\n\n    future_weights = weights[future_indices]\n    future_values = values[future_indices]\n    feasible_mask = future_weights <= remaining_capacity\n    if not np.any(feasible_mask):\n        return 1 if density_i > 0 else 0\n\n    feasible_w = future_weights[feasible_mask]\n    feasible_v = future_values[feasible_mask]\n\n    # 1. 计算生态位重叠度：当前物品与未来物品在重量和价值密度上的相似性\n    # 重量重叠：当前重量与未来平均重量的接近程度\n    mean_future_w = np.mean(feasible_w) if len(feasible_w) > 0 else 0.0\n    std_future_w = np.std(feasible_w) if len(feasible_w) > 1 else 0.0\n    if mean_future_w > 0:\n        weight_overlap = 1.0 - min(1.0, abs(w_i - mean_future_w) / (mean_future_w + 1e-8))\n    else:\n        weight_overlap = 0.0\n\n    # 密度重叠：当前密度与未来平均密度的接近程度\n    future_densities = feasible_v / (feasible_w + 1e-8)\n    mean_future_density = np.mean(future_densities) if len(future_densities) > 0 else 0.0\n    if mean_future_density > 0:\n        density_overlap = 1.0 - min(1.0, abs(density_i - mean_future_density) / (mean_future_density + 1e-8))\n    else:\n        density_overlap = 0.0\n\n    # 综合重叠度（重叠越高，竞争越激烈，排斥力越大）\n    niche_overlap = 0.6 * weight_overlap + 0.4 * density_overlap\n\n    # 2. 计算竞争排斥力：基于重叠度和未来物品的“竞争强度”\n    # 竞争强度由未来物品数量与剩余容量的比值衡量\n    competition_intensity = len(feasible_w) / (remaining_capacity + 1e-8)\n    repulsion = niche_overlap * min(competition_intensity, 1.0)  # 排斥力在0~1之间\n\n    # 3. 计算环境容纳量潜力：当前物品拿取后，剩余空间对后续物品的适配度\n    residual_capacity = remaining_capacity - w_i\n    if residual_capacity > 0 and len(feasible_w) > 0:\n        # 计算剩余空间与未来物品重量的匹配度\n        # 理想情况：剩余空间能被少量大物品填满，或大量小物品填满\n        # 使用信息熵衡量：剩余空间能被多样化的物品组合利用的程度\n        # 先将未来物品按重量分箱，计算分布熵\n        bins = 5\n        if len(feasible_w) > 1:\n            hist, _ = np.histogram(feasible_w, bins=bins, range=(0, remaining_capacity))\n            hist = hist[hist > 0]  # 去除空箱\n            if len(hist) > 0 and np.sum(hist) > 0:\n                prob = hist / np.sum(hist)\n                entropy = -np.sum(prob * np.log(prob + 1e-12))\n                max_entropy = np.log(bins)\n                normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0\n            else:\n                normalized_entropy = 0.0\n        else:\n            normalized_entropy = 0.5  # 只有一个物品时取中间值\n        \n        # 容纳潜力与剩余容量和分布熵都相关\n        # 剩余容量越大、分布越均匀（熵高），容纳潜力越大\n        capacity_ratio = residual_capacity / (remaining_capacity + 1e-8)\n        hosting_potential = 0.7 * capacity_ratio + 0.3 * normalized_entropy\n    else:\n        hosting_potential = 0.0  # 剩余容量为0时无容纳潜力\n\n    # 4. 计算环境扰动因子：基于剩余容量分布的变化速度\n    # 使用未来物品重量的变异系数作为扰动\n    if mean_future_w > 0 and std_future_w > 0:\n        cv = std_future_w / mean_future_w\n        disturbance = min(1.0, cv)  # 变异系数越大，扰动越大\n    else:\n        disturbance = 0.5\n\n    # 5. 综合决策评分：竞争排斥评分 = 当前密度优势 - 排斥力 + 容纳潜力 * 扰动因子\n    # 当前密度优势：与未来平均密度的比值\n    density_advantage = density_i / (mean_future_density + 1e-8)\n    \n    # 评分公式：鼓励低排斥（差异化）、高容纳潜力、高密度优势\n    score = density_advantage - repulsion + 0.3 * hosting_potential * (1.0 + disturbance)\n\n    # 6. 决策规则：动态阈值基于位置和剩余容量比例\n    position_ratio = current_index / num_items\n    capacity_ratio = residual_capacity / (remaining_capacity + 1e-8)\n    # 前期阈值较低鼓励探索，后期阈值较高保护空间\n    threshold = 0.7 - 0.2 * position_ratio + 0.1 * capacity_ratio\n    \n    decision = 1 if score > threshold else 0\n\n    # 安全规则：如果密度显著高于平均且剩余容量充足，强制拿取\n    if remaining_capacity >= 2 * w_i and density_advantage > 1.3:\n        decision = 1\n    \n    # 极端否决：如果竞争排斥力极高且容纳潜力极低，即使密度高也不拿\n    if repulsion > 0.8 and hosting_potential < 0.2 and density_advantage < 1.0:\n        decision = 0\n\n    return decision",
+      "objective": 451.609375
+    },
+    {
+      "concept": "思想概念：基于多尺度时序感知与动态能量平衡的融合启发式。该启发式将决策过程视为一个动态系统，通过构建“能量势能”函数来评估每个物品的长期价值。它结合了互补性适配评分、统计分布加权与轻量蒙特卡洛修正，同时引入一个基于“时序位置熵”的自适应调节项来动态调整决策阈值，以平衡早期探索与后期利用。通过一个“容量碎片抑制”惩罚项和“间隔脉冲触发”机制，该启发式能够在局部最优和全局收益之间找到更好的权衡，从而提高背包总价值。",
+      "feature": [
+        "互补性适配评分",
+        "统计分布加权",
+        "轻量蒙特卡洛修正",
+        "时序位置熵调节",
+        "容量碎片抑制",
+        "间隔脉冲触发",
+        "动态能量势能函数"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # 1. 计算剩余物品的统计特征\n    if current_index + 1 < num_items:\n        future_w = weights[current_index+1:]\n        future_v = values[current_index+1:]\n        feasible_mask = future_w <= remaining_capacity\n        if np.any(feasible_mask):\n            feasible_w = future_w[feasible_mask]\n            feasible_v = future_v[feasible_mask]\n            mean_density = np.mean(feasible_v / (feasible_w + 1e-8))\n            std_density = np.std(feasible_v / (feasible_w + 1e-8))\n            # 平均剩余重量\n            mean_future_weight = np.mean(feasible_w)\n        else:\n            mean_density = 0.0\n            std_density = 0.0\n            mean_future_weight = 0.0\n    else:\n        mean_density = 0.0\n        std_density = 0.0\n        mean_future_weight = 0.0\n\n    # 2. 互补性得分\n    complement_target = remaining_capacity - w_i\n    if complement_target > 0 and mean_future_weight > 0:\n        # 寻找与目标容量最接近的剩余物品重量的距离\n        future_weight_list = weights[current_index+1:]\n        feasible_future = future_weight_list[future_weight_list <= remaining_capacity]\n        if len(feasible_future) > 0:\n            complement_closeness = np.min(np.abs(feasible_future - complement_target))\n            complement_score = 1.0 - (complement_closeness / (remaining_capacity + 1e-8))\n        else:\n            complement_score = 0.0\n    else:\n        complement_score = 0.0\n\n    # 3. 时序位置熵调节项：位置越靠后，熵越高，鼓励保守决策\n    position_ratio = current_index / num_items\n    entropy_factor = 0.5 + 0.5 * position_ratio  # 0.5到1.0之间\n\n    # 4. 冲突系数：当前重量与剩余可行物品总重量的冲突程度\n    if current_index + 1 < num_items:\n        sum_future_feasible_weight = np.sum(feasible_w) if 'feasible_w' in dir() else 0\n        conflict = max(0, (w_i + sum_future_feasible_weight - remaining_capacity) / (w_i + 1e-8))\n    else:\n        conflict = 0.0\n\n    # 5. 动态能量势能函数\n    # 基础分：密度相对优势 + 互补性 + 容量利用率 - 冲突惩罚 - 熵调节\n    capacity_util = w_i / (remaining_capacity + 1e-8)\n    base_energy = (density_i / (mean_density + 1e-8)) - 0.3 * conflict + 0.4 * complement_score + 0.3 * capacity_util\n    # 熵调节项：降低后期冲动决策\n    entropy_penalty = 0.2 * entropy_factor * (1.0 - density_i / (mean_density + 1e-8)) if mean_density > 0 else 0\n    energy = base_energy - entropy_penalty\n\n    # 6. 轻量蒙特卡洛修正：对后续2个物品模拟拿与不拿的差\n    mc_correction = 0.0\n    horizon = min(2, num_items - current_index - 1)\n    if horizon > 0:\n        idx1 = current_index + 1\n        if idx1 < num_items:\n            # 模拟拿当前物品\n            cap_a = remaining_capacity - w_i\n            val_a = v_i\n            if cap_a >= 0:\n                if weights[idx1] <= cap_a:\n                    val_a += values[idx1]\n                    cap_a -= weights[idx1]\n                if idx1 + 1 < num_items and weights[idx1+1] <= cap_a:\n                    val_a += values[idx1+1]\n            # 模拟不拿当前物品\n            cap_b = remaining_capacity\n            val_b = 0.0\n            if weights[idx1] <= cap_b:\n                val_b += values[idx1]\n                cap_b -= weights[idx1]\n            if idx1 + 1 < num_items and weights[idx1+1] <= cap_b:\n                val_b += values[idx1+1]\n            mc_correction = (val_a - val_b) / (v_i + 1e-8) * 0.15\n\n    final_energy = energy + mc_correction\n\n    # 7. 间隔脉冲触发：连续跳过可装物品的检测\n    skip_count = 0\n    for back in range(1, min(5, current_index + 1)):\n        if weights[current_index - back] <= remaining_capacity:\n            skip_count += 1\n        else:\n            break\n    pulse_trigger = skip_count >= 3 and 0.2 <= w_i / (remaining_capacity + 1e-8) <= 0.6\n\n    # 8. 强约束：容量碎片抑制\n    # 如果拿取后剩余容量小于未来物品平均重量的一半，且当前密度低于平均密度*1.2，则强烈惩罚\n    fragmentation_penalty = 0.0\n    if remaining_capacity - w_i < 0.5 * mean_future_weight and density_i < 1.2 * mean_density:\n        fragmentation_penalty = -0.5\n\n    final_energy += fragmentation_penalty\n\n    # 9. 决策规则\n    decision = 0\n    if pulse_trigger and density_i > 0.05:\n        decision = 1\n    elif final_energy > 1.0:\n        decision = 1\n    # 兜底：容量充裕且密度不差时拿取\n    if remaining_capacity >= 2.5 * w_i and density_i > 0.4 * mean_density:\n        decision = 1\n\n    # 强排斥条件：密度极低且互补性极差时拒绝\n    if density_i < 0.1 * mean_density and complement_score < 0.1:\n        decision = 0\n\n    return decision",
+      "objective": 602.53125
+    },
+    {
+      "concept": "基于多尺度优先级融合与自适应阈值调节的启发式。本启发式整合了现有积极经验中的核心策略：能量势差评分衡量物品的价值密度与容量占用比的综合效率；互补性适配评分评估当前物品与剩余容量形成完美填充的潜力；容量碎片抑制惩罚避免因拿取导致剩余空间无法容纳后续物品；间隔脉冲触发机制识别连续跳过可装物品后的机会窗口。同时引入动态密度阈值，基于当前物品密度与后续可行物品平均密度的相对比值进行决策，并采用位置比例自适应调整阈值。通过精简冗余模块（如温度参数、蒙特卡洛修正），保留高贡献策略，实现计算效率与决策质量的平衡。",
+      "feature": [
+        "能量势差评分",
+        "互补性适配评分",
+        "容量碎片抑制",
+        "间隔脉冲触发",
+        "动态密度阈值",
+        "位置自适应调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # 获取剩余可行物品\n    future_indices = np.arange(current_index + 1, num_items)\n    if len(future_indices) == 0:\n        return 1 if density_i > 0 else 0\n\n    future_w = weights[future_indices]\n    future_v = values[future_indices]\n    feasible_mask = future_w <= remaining_capacity\n    if not np.any(feasible_mask):\n        return 1 if density_i > 0 else 0\n\n    feasible_w = future_w[feasible_mask]\n    feasible_v = future_v[feasible_mask]\n\n    # 1. 能量势差评分\n    capacity_occupancy = w_i / (remaining_capacity + 1e-8)\n    energy_potential = density_i / (1.0 + capacity_occupancy)\n\n    # 2. 互补性适配评分\n    complement_target = remaining_capacity - w_i\n    if complement_target > 0 and len(feasible_w) > 0:\n        complement_closeness = np.min(np.abs(feasible_w - complement_target))\n        complement_score = 1.0 - (complement_closeness / (remaining_capacity + 1e-8))\n    else:\n        complement_score = 0.0\n\n    # 3. 容量碎片抑制\n    mean_future_w = np.mean(feasible_w) if len(feasible_w) > 0 else 0.0\n    fragmentation_penalty = 0.0\n    if mean_future_w > 0 and (remaining_capacity - w_i) < 0.5 * mean_future_w:\n        fragmentation_penalty = -0.5\n\n    # 4. 间隔脉冲触发\n    skip_count = 0\n    look_back = min(5, current_index)\n    for back in range(1, look_back + 1):\n        idx = current_index - back\n        if weights[idx] <= remaining_capacity:\n            skip_count += 1\n        else:\n            break\n    pulse_trigger = skip_count >= 3 and 0.2 <= (w_i / (remaining_capacity + 1e-8)) <= 0.6\n\n    # 5. 动态密度阈值（基于后续可行物品的平均密度）\n    avg_future_density = np.mean(feasible_v / (feasible_w + 1e-8)) if len(feasible_w) > 0 else 0.0\n    position_ratio = current_index / num_items\n    # 自适应阈值：位置越靠后，阈值越高（后期更保守）\n    density_threshold = avg_future_density * (0.6 + 0.4 * position_ratio)\n\n    # 6. 综合评分\n    score = energy_potential + 0.4 * complement_score + fragmentation_penalty\n\n    # 7. 决策规则\n    decision = 0\n    # 脉冲触发优先\n    if pulse_trigger and density_i > 0.05:\n        decision = 1\n    # 常规评分决策，结合动态密度阈值\n    elif score > 0.8 and density_i >= density_threshold:\n        decision = 1\n    # 安全拿取：剩余容量充裕且密度不差\n    elif remaining_capacity >= 2.5 * w_i and density_i > 0.4 * avg_future_density:\n        decision = 1\n\n    # 强否决：互补性极差且密度显著低于平均\n    if complement_score < 0.15 and density_i < 0.2 * avg_future_density:\n        decision = 0\n\n    return decision",
+      "objective": 605.703125
+    },
+    {
+      "concept": "基于多尺度优先级融合与自适应阈值调节的启发式。本启发式整合了现有积极经验中的核心策略：能量势差评分衡量物品的价值密度与容量占用比的综合效率；互补性适配评分评估当前物品与剩余容量形成完美填充的潜力；容量碎片抑制惩罚避免因拿取导致剩余空间无法容纳后续物品；间隔脉冲触发机制识别连续跳过可装物品后的机会窗口。同时引入动态密度阈值，基于当前物品密度与后续可行物品平均密度的相对比值进行决策，并采用位置比例自适应调整阈值。通过精简冗余模块（如温度参数、蒙特卡洛修正），保留高贡献策略，实现计算效率与决策质量的平衡。",
+      "feature": [
+        "能量势差评分",
+        "互补性适配评分",
+        "容量碎片抑制",
+        "间隔脉冲触发",
+        "动态密度阈值",
+        "位置自适应调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # 获取剩余可行物品\n    future_indices = np.arange(current_index + 1, num_items)\n    if len(future_indices) == 0:\n        return 1 if density_i > 0 else 0\n\n    future_w = weights[future_indices]\n    future_v = values[future_indices]\n    feasible_mask = future_w <= remaining_capacity\n    if not np.any(feasible_mask):\n        return 1 if density_i > 0 else 0\n\n    feasible_w = future_w[feasible_mask]\n    feasible_v = future_v[feasible_mask]\n\n    # 1. 能量势差评分\n    capacity_occupancy = w_i / (remaining_capacity + 1e-8)\n    energy_potential = density_i / (1.0 + capacity_occupancy)\n\n    # 2. 互补性适配评分\n    complement_target = remaining_capacity - w_i\n    if complement_target > 0 and len(feasible_w) > 0:\n        complement_closeness = np.min(np.abs(feasible_w - complement_target))\n        complement_score = 1.0 - (complement_closeness / (remaining_capacity + 1e-8))\n    else:\n        complement_score = 0.0\n\n    # 3. 容量碎片抑制\n    mean_future_w = np.mean(feasible_w) if len(feasible_w) > 0 else 0.0\n    fragmentation_penalty = 0.0\n    if mean_future_w > 0 and (remaining_capacity - w_i) < 0.5 * mean_future_w:\n        fragmentation_penalty = -0.5\n\n    # 4. 间隔脉冲触发\n    skip_count = 0\n    look_back = min(5, current_index)\n    for back in range(1, look_back + 1):\n        idx = current_index - back\n        if weights[idx] <= remaining_capacity:\n            skip_count += 1\n        else:\n            break\n    pulse_trigger = skip_count >= 3 and 0.2 <= (w_i / (remaining_capacity + 1e-8)) <= 0.6\n\n    # 5. 动态密度阈值（基于后续可行物品的平均密度）\n    avg_future_density = np.mean(feasible_v / (feasible_w + 1e-8)) if len(feasible_w) > 0 else 0.0\n    position_ratio = current_index / num_items\n    # 自适应阈值：位置越靠后，阈值越高（后期更保守）\n    density_threshold = avg_future_density * (0.6 + 0.4 * position_ratio)\n\n    # 6. 综合评分\n    score = energy_potential + 0.4 * complement_score + fragmentation_penalty\n\n    # 7. 决策规则\n    decision = 0\n    # 脉冲触发优先\n    if pulse_trigger and density_i > 0.05:\n        decision = 1\n    # 常规评分决策，结合动态密度阈值\n    elif score > 0.8 and density_i >= density_threshold:\n        decision = 1\n    # 安全拿取：剩余容量充裕且密度不差\n    elif remaining_capacity >= 2.5 * w_i and density_i > 0.4 * avg_future_density:\n        decision = 1\n\n    # 强否决：互补性极差且密度显著低于平均\n    if complement_score < 0.15 and density_i < 0.2 * avg_future_density:\n        decision = 0\n\n    return decision",
+      "objective": 605.703125
+    },
+    {
+      "concept": "基于多尺度优先级融合与自适应阈值调节的启发式。本启发式整合了现有积极经验中的核心策略：能量势差评分衡量物品的价值密度与容量占用比的综合效率；互补性适配评分评估当前物品与剩余容量形成完美填充的潜力；容量碎片抑制惩罚避免因拿取导致剩余空间无法容纳后续物品；间隔脉冲触发机制识别连续跳过可装物品后的机会窗口。同时引入动态密度阈值，基于当前物品密度与后续可行物品平均密度的相对比值进行决策，并采用位置比例自适应调整阈值。通过精简冗余模块（如温度参数、蒙特卡洛修正），保留高贡献策略，实现计算效率与决策质量的平衡。",
+      "feature": [
+        "能量势差评分",
+        "互补性适配评分",
+        "容量碎片抑制",
+        "间隔脉冲触发",
+        "动态密度阈值",
+        "位置自适应调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    w_i = weights[current_index]\n    v_i = values[current_index]\n    density_i = v_i / w_i if w_i > 0 else 0\n\n    # 获取剩余可行物品\n    future_indices = np.arange(current_index + 1, num_items)\n    if len(future_indices) == 0:\n        return 1 if density_i > 0 else 0\n\n    future_w = weights[future_indices]\n    future_v = values[future_indices]\n    feasible_mask = future_w <= remaining_capacity\n    if not np.any(feasible_mask):\n        return 1 if density_i > 0 else 0\n\n    feasible_w = future_w[feasible_mask]\n    feasible_v = future_v[feasible_mask]\n\n    # 1. 能量势差评分\n    capacity_occupancy = w_i / (remaining_capacity + 1e-8)\n    energy_potential = density_i / (1.0 + capacity_occupancy)\n\n    # 2. 互补性适配评分\n    complement_target = remaining_capacity - w_i\n    if complement_target > 0 and len(feasible_w) > 0:\n        complement_closeness = np.min(np.abs(feasible_w - complement_target))\n        complement_score = 1.0 - (complement_closeness / (remaining_capacity + 1e-8))\n    else:\n        complement_score = 0.0\n\n    # 3. 容量碎片抑制\n    mean_future_w = np.mean(feasible_w) if len(feasible_w) > 0 else 0.0\n    fragmentation_penalty = 0.0\n    if mean_future_w > 0 and (remaining_capacity - w_i) < 0.5 * mean_future_w:\n        fragmentation_penalty = -0.5\n\n    # 4. 间隔脉冲触发\n    skip_count = 0\n    look_back = min(5, current_index)\n    for back in range(1, look_back + 1):\n        idx = current_index - back\n        if weights[idx] <= remaining_capacity:\n            skip_count += 1\n        else:\n            break\n    pulse_trigger = skip_count >= 3 and 0.2 <= (w_i / (remaining_capacity + 1e-8)) <= 0.6\n\n    # 5. 动态密度阈值（基于后续可行物品的平均密度）\n    avg_future_density = np.mean(feasible_v / (feasible_w + 1e-8)) if len(feasible_w) > 0 else 0.0\n    position_ratio = current_index / num_items\n    # 自适应阈值：位置越靠后，阈值越高（后期更保守）\n    density_threshold = avg_future_density * (0.6 + 0.4 * position_ratio)\n\n    # 6. 综合评分\n    score = energy_potential + 0.4 * complement_score + fragmentation_penalty\n\n    # 7. 决策规则\n    decision = 0\n    # 脉冲触发优先\n    if pulse_trigger and density_i > 0.05:\n        decision = 1\n    # 常规评分决策，结合动态密度阈值\n    elif score > 0.8 and density_i >= density_threshold:\n        decision = 1\n    # 安全拿取：剩余容量充裕且密度不差\n    elif remaining_capacity >= 2.5 * w_i and density_i > 0.4 * avg_future_density:\n        decision = 1\n\n    # 强否决：互补性极差且密度显著低于平均\n    if complement_score < 0.15 and density_i < 0.2 * avg_future_density:\n        decision = 0\n\n    return decision",
+      "objective": 605.703125
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "能量势差评分",
+        "熵增抑制项",
+        "自由能决策函数",
+        "温度参数调节"
+      ],
+      [
+        "互补性适配评分",
+        "冲突系数权衡",
+        "动态密度阈值",
+        "间隔脉冲触发",
+        "容量碎片抑制"
+      ],
+      [
+        "状态价值预估",
+        "统计分布加权",
+        "空间效率惩罚",
+        "轻量蒙特卡洛修正"
+      ],
+      [
+        "对抗性价值函数",
+        "机会成本补偿因子",
+        "边际效用递减惩罚",
+        "虚拟对手建模",
+        "动态补偿阈值"
+      ],
+      [
+        "能量势差评分",
+        "熵增抑制项",
+        "自由能决策函数",
+        "温度参数调节"
+      ],
+      [
+        "生态位重叠度计算",
+        "竞争排斥评分",
+        "环境容纳量潜力",
+        "剩余空间分布熵",
+        "动态环境扰动因子"
+      ]
+    ],
+    "negative_features": [
+      [
+        "容量兼容性势能",
+        "局部密度优势势能",
+        "时间惯性脉冲触发",
+        "自适应动态阈值",
+        "轻量级前向扫描"
+      ],
+      [
+        "机会成本估算",
+        "动态耐心系数",
+        "轻量局部回溯"
+      ],
+      [
+        "概率价值密度",
+        "历史兼容性指数",
+        "未来容量弹性预测",
+        "自适应随机化决策"
+      ],
+      [
+        "自适应密度势",
+        "动态前瞻机会成本",
+        "碎片抑制惩罚",
+        "协同势融合",
+        "动态阈值调节"
+      ],
+      [
+        "差异熵评分",
+        "协同填充适配",
+        "决策势能函数",
+        "碎片抑制动态调节"
+      ],
+      [
+        "多维度互补性评分",
+        "自适应脉冲触发",
+        "动态密度阈值",
+        "容量压力指数",
+        "位置自适应调节"
+      ],
+      [
+        "能量势差评分",
+        "多维度互补性评分",
+        "自适应脉冲触发",
+        "容量压力指数",
+        "动态密度阈值",
+        "位置自适应调节"
+      ],
+      [
+        "决策流形扭曲度",
+        "互信息增益率",
+        "后悔势能平衡",
+        "序列关联图建模",
+        "信息熵引导阈值"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "heuristics": [
+    {
+      "concept": "该启发式的核心思想是基于“前瞻性机会成本”与“局部拥挤度”的平衡：在决策当前物品时，不仅考虑其自身价值密度，还预估如果选择该物品，对后续剩余容量可容纳的“潜在平均价值”的影响。通过比较当前物品带来的直接收益与放弃它可能保留给后续更高价值组合的机会成本，并引入基于已遍历物品平均密度的动态阈值，形成与价值密度+容量匹配完全不同的决策逻辑。策略上强调全局视角的局部化近似，避免仅依赖当前物品属性。",
+      "feature": [
+        "前瞻机会成本",
+        "动态密度阈值",
+        "剩余价值预估"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 计算当前物品价值密度\n    current_density = v / w if w > 0 else 1e9\n\n    # 预估剩余物品的平均价值密度（从下一个物品到结束）\n    remaining_weights = weights[current_index+1:]\n    remaining_values = values[current_index+1:]\n    if len(remaining_weights) > 0:\n        total_rem_w = np.sum(remaining_weights)\n        total_rem_v = np.sum(remaining_values)\n        avg_future_density = total_rem_v / total_rem_w if total_rem_w > 0 else 0.0\n    else:\n        avg_future_density = 0.0\n\n    # 计算机会成本：当前物品的相对密度与未来平均密度的比较\n    # 如果当前密度远高于未来平均，则更值得拿；否则可能放弃保留空间\n    density_advantage = current_density - avg_future_density\n\n    # 容量利用率：如果拿当前物品后剩余容量占比很小（接近满包），则更倾向拿，因为利用充分\n    future_remaining = remaining_capacity - w\n    capacity_usage_score = future_remaining / max(remaining_capacity, 1)\n\n    # 动态阈值：基于已遍历物品的平均密度来决定选择倾向\n    # 已遍历物品包括当前索引之前的物品\n    past_weights = weights[:current_index]\n    past_values = values[:current_index]\n    if len(past_weights) > 0:\n        past_avg_density = np.sum(past_values) / np.sum(past_weights) if np.sum(past_weights) > 0 else 0.0\n    else:\n        past_avg_density = 0.0\n\n    # 综合评分：密度优势占主导，容量利用作为修正，并用历史平均密度做阈值\n    score = density_advantage * 0.7 + (1 - capacity_usage_score) * 0.3\n\n    # 如果当前密度高于过去平均密度，且密度优势为正，则选择\n    if current_density > past_avg_density and density_advantage > 0:\n        return 1\n    elif score > 0:\n        return 1\n    else:\n        return 0",
+      "objective": 472.3125
+    },
+    {
+      "concept": "本启发式基于“局部密度突变检测”与“边界收益归零”的决策逻辑。核心思想是：在当前物品决策时，不比较其与全局或未来的平均密度，而是检测该物品相对于前一个物品的密度突变程度，以及当前剩余容量是否处于“可被该物品几乎填满”的边界状态。若密度显著上升且剩余容量足够，则取；若剩余容量在取后接近零且当前物品价值尚可，则强制取；否则倾向于放弃，以保持容量灵活性。该策略刻意避开价值密度排序或前瞻平均，转而关注相邻物品间的相对差异与容量利用的“终点效应”，从而产生与现有启发式截然不同的搜索轨迹。  \n{ [密度突变检测] + [边界容量强制] + [相邻比较] + [保守占用]",
+      "feature": [],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n    \n    current_density = v / w if w > 0 else 1e9\n    \n    # 密度突变检测：与上一物品密度比较\n    if current_index > 0:\n        prev_w = float(weights[current_index - 1])\n        prev_v = float(values[current_index - 1])\n        prev_density = prev_v / prev_w if prev_w > 0 else 0.0\n        density_change = current_density - prev_density\n    else:\n        density_change = current_density  # 第一个物品默认视为突变\n    \n    # 边界容量强制：若取后剩余容量极小，则倾向取\n    remaining_after = remaining_capacity - w\n    fill_ratio = remaining_after / max(remaining_capacity, 1)\n    is_boundary = fill_ratio <= 0.1\n    \n    # 保守占用：若当前密度低于上个物品密度且不处于边界，则放弃\n    if density_change < 0 and not is_boundary:\n        return 0\n    \n    # 若密度显著上升且容量足够，取\n    if density_change > 0 and w <= remaining_capacity:\n        return 1\n    \n    # 边界强制取\n    if is_boundary and v > 0:\n        return 1\n    \n    # 默认保守\n    return 0",
+      "objective": 976.84375
+    },
+    {
+      "concept": "基于“决策时间线压缩”与“收益延迟实现”的启发式：将当前物品视为一个时间节点，通过计算其重量在剩余背包空间中的“占位成本”以及其价值在未来可能产生“连锁机会”的潜力，构建决策树的一步剪枝近似。核心逻辑是：不仅评估当前物品的直接收益，还预估若现在不选它，后续物品中是否存在能完全替代其重量且价值更高的“影子替代品”。通过比较当前物品与未来最佳单件替代品的价值差和重量差，决定是否立即“锁定”该物品，同时引入剩余容量不足时的“强制清仓”规则。该策略不依赖密度或统计偏差，而是从“决策时效性”和“替代成本”角度进行二元博弈。",
+      "feature": [
+        "时效性评估",
+        "影子替代品比较",
+        "延迟惩罚系数",
+        "容量清仓规则"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 1. 寻找未来最佳单件替代品（从下一个物品到结束，选取价值最高且重量不超过剩余容量的）\n    future_indices = np.arange(current_index + 1, num_items)\n    best_future_value = 0.0\n    best_future_weight = 0.0\n    for idx in future_indices:\n        if weights[idx] <= remaining_capacity:\n            if values[idx] > best_future_value:\n                best_future_value = values[idx]\n                best_future_weight = weights[idx]\n\n    # 2. 计算当前物品的“时效性收益”：若现在选，立即可得；若等未来替代品，需承担不确定性\n    # 延迟惩罚系数：剩余容量越小，未来不确定性越高（因为容量越紧，替代品可能无法装下）\n    delay_penalty = 1.0 if remaining_capacity > 0.5 * np.sum(weights) else 0.5\n    future_adjusted_value = best_future_value * delay_penalty\n\n    # 3. 比较当前物品与未来最佳替代品的“价值差值”和“重量占用差”\n    value_diff = v - future_adjusted_value\n    weight_diff = w - best_future_weight  # 若当前物品更重且价值更低，则不应选\n\n    # 4. 容量清仓规则：若剩余容量很小，且当前物品能填满大部分剩余空间，则强制选择\n    fill_ratio_after = (remaining_capacity - w) / max(remaining_capacity, 1e-6)\n    is_clearance = remaining_capacity <= 0.2 * np.sum(weights) and fill_ratio_after <= 0.1\n\n    # 5. 决策逻辑：\n    #    - 如果当前物品价值大于未来替代品（考虑延迟惩罚），且不是明显劣势（重量更重但价值没高太多），则选\n    #    - 若处于清仓边界，则强制选\n    if is_clearance:\n        return 1\n    if value_diff > 0 and (weight_diff <= 0 or v / w > 1.0):\n        return 1\n    # 若当前物品是唯一能在剩余容量内放下的（即未来无任何可替代物品），则选\n    if best_future_value == 0 and v > 0:\n        return 1\n    return 0",
+      "objective": 1017.25
+    },
+    {
+      "concept": "本启发式基于“风险对冲与收益波动分析”的决策逻辑。核心思想是：将每个物品视为一项投资，其价值不仅取决于当前密度，还取决于其价值在整体分布中的“稀缺性”和“波动性”。通过计算当前物品价值与全局平均价值的偏差程度，以及该物品重量在剩余容量中的“跨度占比”，来评估其不可替代性。若物品价值显著高于全局均值且其重量跨度适中（不过大也不极小），则倾向选择；同时引入反向规则：若当前物品价值极低但重量极小，可作为“零钱”策略在容量边界处填充。该策略完全不依赖物品间相邻比较或未来密度预估，而是从统计分布视角独立决策。",
+      "feature": [
+        "全局统计偏差",
+        "容量跨度评估",
+        "风险对冲",
+        "零钱填充"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 计算全局价值统计量（基于所有物品）\n    global_mean_v = np.mean(values)\n    global_std_v = np.std(values)\n\n    # 计算当前物品价值的全局偏差（z-score）\n    if global_std_v > 1e-9:\n        value_z = (v - global_mean_v) / global_std_v\n    else:\n        value_z = 0.0\n\n    # 计算容量跨度：物品重量占当前剩余容量的比例\n    span_ratio = w / remaining_capacity if remaining_capacity > 0 else 0.0\n\n    # 评估跨度是否适中（避免过大占据全部空间，避免过小无足轻重）\n    mid_low = 0.15\n    mid_high = 0.85\n    span_score = 1.0 if mid_low <= span_ratio <= mid_high else 0.0\n\n    # 判断剩余容量是否接近边界（很小），用于“零钱填充”规则\n    is_boundary = remaining_capacity <= 0.1 * np.sum(weights) if np.sum(weights) > 0 else False\n\n    # 规则1：高价值且跨度适中 -> 选择\n    if value_z > 0.5 and span_score == 1.0:\n        return 1\n\n    # 规则2：边界状态下，极轻物品作为零钱填充（即使价值不高）\n    if is_boundary and w <= 0.15 * remaining_capacity and v > 0:\n        return 1\n\n    # 规则3：若物品价值低于全局均值且跨度较大，放弃以保留容量\n    if value_z < -0.5 and span_ratio > 0.8:\n        return 0\n\n    # 默认：基于综合评分（价值偏差与跨度平衡）\n    score = value_z * 0.6 + span_score * 0.4\n    # 加入微小的随机扰动以避免完全固定\n    if np.random.uniform(0, 1) < 0.05:\n        return 1 if score > 0 else 0\n    else:\n        return 1 if score > 0.2 else 0",
+      "objective": 1107.609375
+    },
+    {
+      "concept": "本启发式基于“物品价值稀疏性与容量机会窗”的决策逻辑。核心思想是：不直接比较密度或未来平均值，而是评估当前物品在价值分布中的“稀缺程度”（即高于其他物品价值的比例）以及当前剩余容量相对该物品重量的“机会窗口”（即若放弃，后续还能有多少次类似重量级别的机会）。通过构建“价值分位数”与“重量排名”的二维联合评分，判断当前物品是否是“不可错过的稀有高值项”或“容量窗口内最后的机会”。若当前物品价值高于绝大多数已遍历物品且其重量在剩余容量中占据合理比例，则选择；若当前物品价值极低且剩余容量偏远，则放弃。该策略完全脱离时间序列比较，转而从全局价值等级和容量机会角度独立决策。",
+      "feature": [
+        "全局价值分位数",
+        "容量机会窗",
+        "稀有性评分",
+        "重量排名互补"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品价值在所有物品中的分位数（越高越稀有）\n    # 统计所有物品中价值低于当前物品价值的比例\n    lower_value_count = np.sum(values < v)\n    value_percentile = lower_value_count / num_items if num_items > 0 else 0.0\n\n    # 2. 计算当前物品重量在所有物品中的排名（从小到大，越小越轻）\n    # 统计所有物品中重量小于当前物品重量的比例\n    lighter_weight_count = np.sum(weights < w)\n    weight_percentile = lighter_weight_count / num_items if num_items > 0 else 0.0\n\n    # 3. 容量机会窗：评估当前物品在剩余容量中的“利用价值”\n    # 若当前物品重量占剩余容量比例适中（不太大也不太小），则机会窗好\n    span_ratio = w / remaining_capacity if remaining_capacity > 0 else 1.0\n    # 机会窗得分：最优在0.4~0.7之间，既不会浪费空间也不会过于冒险\n    window_score = 1.0 - abs(span_ratio - 0.55) * 2.0  # 线性衰减\n    window_score = max(0.0, min(1.0, window_score))\n\n    # 4. 稀有性评分：价值分位数高（前30%）且重量排名适中（不是最重也不是最轻）\n    is_rare_high_value = value_percentile > 0.7  # 价值高于70%的其他物品\n    is_reasonable_weight = 0.3 <= weight_percentile <= 0.8  # 重量处于30%~80%区间\n\n    # 5. 决策规则：\n    #    - 若当前物品价值极为稀有且重量合理，则选择\n    if is_rare_high_value and is_reasonable_weight:\n        return 1\n\n    #    - 若剩余容量已经很小（小于所有物品平均重量），且当前物品能填补大部分剩余空间，则选择\n    avg_weight = np.mean(weights) if num_items > 0 else 1.0\n    if remaining_capacity <= avg_weight and span_ratio >= 0.8 and v > 0:\n        return 1\n\n    #    - 若当前物品价值很低（处于后30%）且重量较大（占剩余容量80%以上），则放弃\n    if value_percentile < 0.3 and span_ratio > 0.8:\n        return 0\n\n    #    - 默认：结合稀有度与机会窗的综合评分（强调互补性）\n    score = value_percentile * 0.6 + window_score * 0.4\n    # 加入小概率随机扰动，避免完全确定性\n    if np.random.uniform(0, 1) < 0.05:\n        return 1 if score > 0.5 else 0\n    else:\n        return 1 if score > 0.6 else 0",
+      "objective": 2046.875
+    },
+    {
+      "concept": "基于价值密度与剩余容量动态调整的启发式：在逐个决策时，优先考虑当前物品的价值/重量比，并结合剩余容量与当前物品重量的接近程度，当剩余容量充足且价值密度高时倾向选择，若剩余容量刚好接近当前物品重量则更可能选择以充分利用容量，否则保守放弃。同时加入随机扰动避免局部最优。",
+      "feature": [
+        "价值密度优先",
+        "容量匹配",
+        "随机扰动"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    # 计算价值密度\n    density = v / w if w > 0 else 1e9\n    # 容量匹配度：剩余容量与物品重量越接近，越倾向于选择\n    capacity_match = 1.0 - abs(remaining_capacity - w) / max(remaining_capacity, 1)\n    # 随机扰动，防止陷入局部最优\n    noise = np.random.uniform(0.8, 1.2)\n    score = density * 0.6 + capacity_match * 0.3 + noise * 0.1\n    # 简单阈值：如果密度高于平均（或固定阈值），则选择\n    # 这里使用一个自适应阈值：如果剩余容量较小且物品能填满大部分剩余则选\n    if remaining_capacity <= 0.3 * (weights.sum()) and w >= 0.8 * remaining_capacity:\n        return 1\n    # 否则根据分数决定\n    if score > 1.0:\n        return 1\n    else:\n        return 0",
+      "objective": 2117.015625
+    },
+    {
+      "concept": "本启发式基于“群体协同概率”与“空间填充模式”的决策逻辑：将当前物品放入一个虚拟的“背包空间”中，并同时评估该物品与所有已放入物品在重量上的互补性（类似装箱中的配对），以及它与未放入物品在重量上的可替换性。核心思想是：若当前物品能与已选物品形成“高密度组合”或能填补背包剩余空间中的结构性空洞（如剩余容量碎片），则选择；同时引入基于随机扰动和规则切换的机制，避免固定模式。该策略不直接比较密度，而通过“空间利用率增量”和“组合紧密度”来衡量价值，从而与现有启发式完全不同。",
+      "feature": [
+        "空间填充模式",
+        "组合互补配对",
+        "容量碎片填补",
+        "随机规则切换"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items, **kwargs):\n    if current_index >= num_items:\n        return 0\n    w = float(weights[current_index])\n    v = float(values[current_index])\n    if w > remaining_capacity:\n        return 0\n    \n    # 1. 计算已选择物品（假设之前返回1的物品已放入，这里用历史重量近似模拟）\n    # 实际中无法直接获取已选列表，这里使用传入的历史信息或从剩余容量反推\n    # 若没有历史，则基于总容量与剩余容量之差估计已用重量\n    if 'total_capacity' in kwargs:\n        total_cap = kwargs['total_capacity']\n    else:\n        total_cap = remaining_capacity + np.sum(weights[:current_index])  # 近似\n    used_weight = total_cap - remaining_capacity\n    # 已选物品数量近似（按平均重量估算）\n    if current_index > 0:\n        avg_w_selected = used_weight / max(current_index, 1)\n    else:\n        avg_w_selected = 0\n    \n    # 2. 空间填充模式：判断当前物品是否能与已选重量“互补”\n    # 互补性：当前重量与平均已选重量的差异大，则有利于空间填充\n    complement_score = abs(w - avg_w_selected) / max(w + avg_w_selected, 1e-6)\n    \n    # 3. 容量碎片填补：若剩余容量较小，且当前物品能填满大部分剩余，则强选\n    fill_ratio_after = (remaining_capacity - w) / max(remaining_capacity, 1)\n    fragment_score = 1.0 if fill_ratio_after <= 0.15 else 0.0\n    \n    # 4. 组合紧密度：计算当前物品与未来物品在重量上的互补性（近似）\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0:\n        # 找一个未来的重量，能与当前物品组合接近剩余容量或与之匹配\n        future_pairs = future_weights + w\n        match_future = np.any(np.abs(future_pairs - remaining_capacity) < 0.1 * remaining_capacity)\n    else:\n        match_future = False\n    \n    # 5. 随机规则切换：以概率决定使用哪种主导策略\n    rand = np.random.random()\n    if rand < 0.3:\n        # 规则A：强调整合互补\n        score = complement_score * 0.6 + v / max(w, 1e-6) * 0.2 + fragment_score * 0.2\n        return 1 if score > 0.5 else 0\n    elif rand < 0.6:\n        # 规则B：强调填补碎片\n        if fragment_score == 1:\n            return 1\n        else:\n            # 若当前物品与未来某物品组合能接近剩余容量，则选\n            if match_future:\n                return 1\n            else:\n                return 0\n    else:\n        # 规则C：保守但考虑组合紧密度\n        # 若当前物品重量较大且能紧密配合一个较小的未来物品，或当前物品很小且配合大物品\n        if complement_score > 0.7 and w > 0:\n            return 1\n        else:\n            return 0",
+      "objective": 2906.578125
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": []
+  }
+}

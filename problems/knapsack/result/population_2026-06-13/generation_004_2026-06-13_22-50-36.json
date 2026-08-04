@@ -1,0 +1,222 @@
+{
+  "heuristics": [
+    {
+      "concept": "本启发式基于“预期价值衰减与容量弹性博弈”的全新视角。核心思想是评估当前物品的“价值衰减系数”（其价值密度相对于剩余物品中位数密度比的动态衰减程度）与“容量弹性指数”（拿取后剩余容量能承载的后续物品最大价值弹性）。通过构建“价值-容量博弈比”，将物品的即时收益与对剩余容量价值承载能力的潜在压缩效应进行权衡。引入“动态决策基准线”，该基准线由剩余物品的价值密度分布偏度与剩余容量的相对充裕度共同决定，避免了复杂的阈值分段与碎片化模拟。该方法强调对剩余机会结构的整体把握，而非局部稀缺性或冲突度。",
+      "feature": [
+        "预期价值衰减",
+        "容量弹性博弈",
+        "动态决策基准线",
+        "分布偏度感知",
+        "价值-容量博弈比"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 获取后续物品信息（不包括当前物品）\n    future_weights = weights[current_index+1:]\n    future_values = values[current_index+1:]\n    \n    # 如果没有后续物品，直接拿取\n    if len(future_weights) == 0:\n        return 1\n\n    current_density = v / w if w > 0 else 0\n\n    # 1. 计算后续物品价值密度的中位数与偏度近似\n    future_densities = future_values / (future_weights + 1e-8)\n    median_density = np.median(future_densities)\n    # 使用均值与中位数的差异作为偏度的粗略估计（正偏表示有高密度尾部分布）\n    mean_density = np.mean(future_densities)\n    skew_indicator = (mean_density - median_density) / (mean_density + 1e-8)  # 范围约[-1,1]\n\n    # 2. 价值衰减系数：当前密度相对于中位数的衰减程度，并用偏度修正\n    if median_density > 0:\n        raw_decay = current_density / median_density\n    else:\n        raw_decay = 1.0\n    # 如果偏度为正（分布右偏），说明后续存在高密度机会，对当前密度要求更高\n    decay_factor = raw_decay - 0.2 * max(0, skew_indicator)  # 衰减调整，降低评分\n    decay_factor = np.clip(decay_factor, 0.1, 2.0)\n\n    # 3. 容量弹性指数：拿取后剩余容量可承载的后续最大价值弹性\n    # 使用加权平均密度计算潜在价值（按重量权重）\n    if np.sum(future_weights) > 0:\n        weighted_avg_density = np.sum(future_values) / np.sum(future_weights)\n    else:\n        weighted_avg_density = 0\n    cap_after = remaining_capacity - w\n    value_capacity_if_take = cap_after * weighted_avg_density\n    value_capacity_if_not = remaining_capacity * weighted_avg_density\n    # 弹性比：拿取后剩余价值的相对压缩程度（>1表示压缩大，不利）\n    elasticity_ratio = (value_capacity_if_not - value_capacity_if_take) / (value_capacity_if_not + 1e-8)\n    elasticity_ratio = np.clip(elasticity_ratio, 0.0, 1.0)\n\n    # 4. 价值-容量博弈比：高衰减+高弹性=低评分\n    score = decay_factor * (1.0 - elasticity_ratio)\n\n    # 5. 动态决策基准线：基于后续价值密度分布与容量相对充裕度\n    total_capacity = np.sum(weights)\n    cap_ratio = remaining_capacity / total_capacity if total_capacity > 0 else 1.0\n    # 基准线随容量紧张而提高，并受偏度影响（偏度为正时，基准线提高，更严格）\n    base_line = 0.5 + 0.3 * (1.0 - cap_ratio) + 0.15 * max(0, skew_indicator)\n    base_line = np.clip(base_line, 0.3, 0.9)\n\n    # 决策：评分高于基准线则拿取\n    return 1 if score > base_line else 0",
+      "objective": 186.078125
+    },
+    {
+      "concept": "本启发式在继承“相对稀缺性”与“机会成本评估”核心框架的基础上，引入了**“动态稀缺弹性系数”**与**“潜在价值熵增益”**两个创新点。核心思路是：通过计算当前物品对剩余容量中“预期价值密度缺口”的填补程度（即稀缺弹性），取代传统的简单稀缺性比值；同时利用剩余物品价值密度分布的熵值变化（拿取后熵变）来评估该物品对后续决策空间多样性的影响——若拿取使熵显著降低（机会集中），则降低阈值鼓励拿取；若熵升高（机会分散），则提高阈值以保持谨慎。此外，采用**“自适应保守基线”**替代固定或分段阈值，该基线由剩余容量比例、当前索引位置以及剩余物品的“重量偏态系数”共同非线性调节，避免了繁琐的碎片化修正和局部窗口计算，在保持低计算复杂度的同时，增强了对物品分布结构变化的动态适应性。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品信息\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # --- 1. 核心指标计算 ---\n    density = v / w if w > 0 else 0\n    avg_density_rem = total_rem_value / total_rem_weight if total_rem_weight > 0 else density\n\n    # 相对稀缺性 (原始)\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 动态稀缺弹性系数：衡量当前物品填补“预期价值密度缺口”的程度\n    # 缺口：剩余物品的平均密度与当前密度的差距\n    density_gap = avg_density_rem - density\n    # 弹性系数：若当前密度远高于平均，则弹性高（稀缺弹性大）；反之则低\n    scarcity_elasticity = density / (avg_density_rem + 1e-8)\n    # 用指数函数放大高密度优势，同时避免负数影响\n    elasticity_factor = np.exp(scarcity_elasticity - 1.0)  # 当密度等于平均时，因子为1\n\n    # --- 2. 潜在价值熵增益 ---\n    # 计算剩余物品价值密度分布的近似熵（用变异系数替代，减少计算）\n    if len(rem_weights) > 1:\n        rem_densities = rem_values / (rem_weights + 1e-8)\n        mean_d = np.mean(rem_densities)\n        std_d = np.std(rem_densities)\n        cv_before = std_d / (mean_d + 1e-8)\n\n        # 模拟拿取后的剩余密度分布（仅移除当前物品对分布的影响）\n        # 用一个近似值：如果当前密度很高或很低，分布会向均值靠拢或分散\n        # 这里简化为：拿取后的变异系数变化趋势\n        # 如果当前密度 > 平均密度，拿取后分布尾部变轻，熵可能降低（机会集中）\n        # 反之，熵可能升高（机会分散）\n        if scarcity_elasticity > 1.0:\n            entropy_gain = -0.1 * min(1.0, scarcity_elasticity - 1.0)  # 熵降低，阈值应该降\n        else:\n            entropy_gain = 0.1 * min(1.0, 1.0 - scarcity_elasticity)   # 熵升高，阈值应该升\n        # 用变异系数做修正，避免对均匀分布过度反应\n        cv_norm = min(cv_before / 2.0, 1.0)\n        entropy_gain *= (2.0 * cv_norm - 0.5)  # 当CV大时，熵效应更明显\n    else:\n        entropy_gain = 0.0\n\n    # --- 3. 自适应保守基线 ---\n    # 基于重量偏态系数、剩余容量比例和索引位置\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 1:\n        mean_fw = np.mean(future_weights)\n        std_fw = np.std(future_weights)\n        skew_fw = np.mean((future_weights - mean_fw)**3) / (std_fw**3 + 1e-8)\n    else:\n        skew_fw = 0.0\n\n    total_weight = np.sum(weights)\n    cap_ratio = remaining_capacity / (total_weight + 1e-8)\n    position_factor = 1.0 - (current_index / num_items) * 0.2  # 范围0.8~1.0\n\n    # 基础基线：容量越紧张，基线越高；偏态为正（右偏，有重物），提高基线，避免拿大件\n    base_line = 0.4 + 0.3 * (1.0 - cap_ratio) * position_factor\n    skew_adjust = 0.1 * max(0, skew_fw)  # 右偏时更保守\n    baseline = base_line + skew_adjust - 0.05 * max(0, -skew_fw)  # 左偏可稍激进\n    baseline = np.clip(baseline, 0.2, 0.9)\n\n    # --- 4. 阈值微调 ---\n    # 用弹性因子和熵增益调整\n    threshold = baseline - 0.1 * (elasticity_factor - 1.0) + entropy_gain\n    threshold = np.clip(threshold, 0.2, 0.9)\n\n    # --- 5. 综合评分 ---\n    # 评分 = 稀缺性 * 弹性因子 (直接反映价值密度优势)\n    score = scarcity * elasticity_factor\n\n    # 决策\n    return 1 if score > threshold else 0",
+      "objective": 235.6875
+    },
+    {
+      "concept": "本启发式在保留“相对稀缺性”与“机会成本评估”核心框架的基础上，引入“动态稀缺弹性系数”与“潜在价值熵增益”两个创新点。核心思路是：通过计算当前物品对剩余容量中“预期价值密度缺口”的填补程度（即稀缺弹性），取代传统的简单稀缺性比值；同时利用剩余物品价值密度分布的熵值变化（拿取后熵变）来评估该物品对后续决策空间多样性的影响——若拿取使熵显著降低（机会集中），则降低阈值鼓励拿取；若熵升高（机会分散），则提高阈值以保持谨慎。此外，采用“自适应保守基线”替代固定或分段阈值，该基线由剩余容量比例、当前索引位置以及剩余物品的“重量偏态系数”共同非线性调节，避免了繁琐的碎片化修正和局部窗口计算，在保持低计算复杂度的同时，增强了对物品分布结构变化的动态适应性。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品信息\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # --- 1. 核心指标计算 ---\n    density = v / w if w > 0 else 0\n    avg_density_rem = total_rem_value / total_rem_weight if total_rem_weight > 0 else density\n\n    # 相对稀缺性 (原始)\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 动态稀缺弹性系数：衡量当前物品填补“预期价值密度缺口”的程度\n    scarcity_elasticity = density / (avg_density_rem + 1e-8)\n    elasticity_factor = np.exp(scarcity_elasticity - 1.0)\n\n    # --- 2. 潜在价值熵增益 ---\n    if len(rem_weights) > 1:\n        rem_densities = rem_values / (rem_weights + 1e-8)\n        mean_d = np.mean(rem_densities)\n        std_d = np.std(rem_densities)\n        cv_before = std_d / (mean_d + 1e-8)\n\n        if scarcity_elasticity > 1.0:\n            entropy_gain = -0.1 * min(1.0, scarcity_elasticity - 1.0)\n        else:\n            entropy_gain = 0.1 * min(1.0, 1.0 - scarcity_elasticity)\n        cv_norm = min(cv_before / 2.0, 1.0)\n        entropy_gain *= (2.0 * cv_norm - 0.5)\n    else:\n        entropy_gain = 0.0\n\n    # --- 3. 自适应保守基线 ---\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 1:\n        mean_fw = np.mean(future_weights)\n        std_fw = np.std(future_weights)\n        skew_fw = np.mean((future_weights - mean_fw)**3) / (std_fw**3 + 1e-8)\n    else:\n        skew_fw = 0.0\n\n    total_weight = np.sum(weights)\n    cap_ratio = remaining_capacity / (total_weight + 1e-8)\n    position_factor = 1.0 - (current_index / num_items) * 0.2\n\n    base_line = 0.4 + 0.3 * (1.0 - cap_ratio) * position_factor\n    skew_adjust = 0.1 * max(0, skew_fw)\n    baseline = base_line + skew_adjust - 0.05 * max(0, -skew_fw)\n    baseline = np.clip(baseline, 0.2, 0.9)\n\n    # --- 4. 阈值微调 ---\n    threshold = baseline - 0.1 * (elasticity_factor - 1.0) + entropy_gain\n    threshold = np.clip(threshold, 0.2, 0.9)\n\n    # --- 5. 综合评分 ---\n    score = scarcity * elasticity_factor\n\n    return 1 if score > threshold else 0",
+      "objective": 235.6875
+    },
+    {
+      "concept": "本启发式在“相对稀缺性”与“机会成本评估”核心框架基础上，引入“动态稀缺弹性系数”与“潜在价值熵增益”两个创新点。通过计算当前物品对剩余容量中“预期价值密度缺口”的填补程度（即稀缺弹性），取代传统的简单稀缺性比值；同时利用剩余物品价值密度分布的熵值变化（拿取后熵变）来评估该物品对后续决策空间多样性的影响——若拿取使熵显著降低（机会集中），则降低阈值鼓励拿取；若熵升高（机会分散），则提高阈值以保持谨慎。此外，采用“自适应保守基线”替代固定或分段阈值，该基线由剩余容量比例、当前索引位置以及剩余物品的“重量偏态系数”共同非线性调节，避免了繁琐的碎片化修正和局部窗口计算，在保持低计算复杂度的同时，增强了对物品分布结构变化的动态适应性。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品信息\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # --- 1. 核心指标计算 ---\n    density = v / w if w > 0 else 0\n    avg_density_rem = total_rem_value / total_rem_weight if total_rem_weight > 0 else density\n\n    # 相对稀缺性 (原始)\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 动态稀缺弹性系数：衡量当前物品填补“预期价值密度缺口”的程度\n    scarcity_elasticity = density / (avg_density_rem + 1e-8)\n    elasticity_factor = np.exp(scarcity_elasticity - 1.0)\n\n    # --- 2. 潜在价值熵增益 ---\n    if len(rem_weights) > 1:\n        rem_densities = rem_values / (rem_weights + 1e-8)\n        mean_d = np.mean(rem_densities)\n        std_d = np.std(rem_densities)\n        cv_before = std_d / (mean_d + 1e-8)\n\n        if scarcity_elasticity > 1.0:\n            entropy_gain = -0.1 * min(1.0, scarcity_elasticity - 1.0)\n        else:\n            entropy_gain = 0.1 * min(1.0, 1.0 - scarcity_elasticity)\n        cv_norm = min(cv_before / 2.0, 1.0)\n        entropy_gain *= (2.0 * cv_norm - 0.5)\n    else:\n        entropy_gain = 0.0\n\n    # --- 3. 自适应保守基线 ---\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 1:\n        mean_fw = np.mean(future_weights)\n        std_fw = np.std(future_weights)\n        skew_fw = np.mean((future_weights - mean_fw)**3) / (std_fw**3 + 1e-8)\n    else:\n        skew_fw = 0.0\n\n    total_weight = np.sum(weights)\n    cap_ratio = remaining_capacity / (total_weight + 1e-8)\n    position_factor = 1.0 - (current_index / num_items) * 0.2\n\n    base_line = 0.4 + 0.3 * (1.0 - cap_ratio) * position_factor\n    skew_adjust = 0.1 * max(0, skew_fw)\n    baseline = base_line + skew_adjust - 0.05 * max(0, -skew_fw)\n    baseline = np.clip(baseline, 0.2, 0.9)\n\n    # --- 4. 阈值微调 ---\n    threshold = baseline - 0.1 * (elasticity_factor - 1.0) + entropy_gain\n    threshold = np.clip(threshold, 0.2, 0.9)\n\n    # --- 5. 综合评分 ---\n    score = scarcity * elasticity_factor\n\n    return 1 if score > threshold else 0",
+      "objective": 235.6875
+    },
+    {
+      "concept": "本启发式在“相对稀缺性”与“机会成本评估”核心框架基础上，引入“动态稀缺弹性系数”与“潜在价值熵增益”两个创新点。通过计算当前物品对剩余容量中“预期价值密度缺口”的填补程度（即稀缺弹性），取代传统的简单稀缺性比值；同时利用剩余物品价值密度分布的熵值变化（拿取后熵变）来评估该物品对后续决策空间多样性的影响——若拿取使熵显著降低（机会集中），则降低阈值鼓励拿取；若熵升高（机会分散），则提高阈值以保持谨慎。此外，采用“自适应保守基线”替代固定或分段阈值，该基线由剩余容量比例、当前索引位置以及剩余物品的“重量偏态系数”共同非线性调节，避免了繁琐的碎片化修正和局部窗口计算，在保持低计算复杂度的同时，增强了对物品分布结构变化的动态适应性。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品信息\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # --- 1. 核心指标计算 ---\n    density = v / w if w > 0 else 0\n    avg_density_rem = total_rem_value / total_rem_weight if total_rem_weight > 0 else density\n\n    # 相对稀缺性 (原始)\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 动态稀缺弹性系数：衡量当前物品填补“预期价值密度缺口”的程度\n    scarcity_elasticity = density / (avg_density_rem + 1e-8)\n    elasticity_factor = np.exp(scarcity_elasticity - 1.0)\n\n    # --- 2. 潜在价值熵增益 ---\n    if len(rem_weights) > 1:\n        rem_densities = rem_values / (rem_weights + 1e-8)\n        mean_d = np.mean(rem_densities)\n        std_d = np.std(rem_densities)\n        cv_before = std_d / (mean_d + 1e-8)\n\n        if scarcity_elasticity > 1.0:\n            entropy_gain = -0.1 * min(1.0, scarcity_elasticity - 1.0)\n        else:\n            entropy_gain = 0.1 * min(1.0, 1.0 - scarcity_elasticity)\n        cv_norm = min(cv_before / 2.0, 1.0)\n        entropy_gain *= (2.0 * cv_norm - 0.5)\n    else:\n        entropy_gain = 0.0\n\n    # --- 3. 自适应保守基线 ---\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 1:\n        mean_fw = np.mean(future_weights)\n        std_fw = np.std(future_weights)\n        skew_fw = np.mean((future_weights - mean_fw)**3) / (std_fw**3 + 1e-8)\n    else:\n        skew_fw = 0.0\n\n    total_weight = np.sum(weights)\n    cap_ratio = remaining_capacity / (total_weight + 1e-8)\n    position_factor = 1.0 - (current_index / num_items) * 0.2\n\n    base_line = 0.4 + 0.3 * (1.0 - cap_ratio) * position_factor\n    skew_adjust = 0.1 * max(0, skew_fw)\n    baseline = base_line + skew_adjust - 0.05 * max(0, -skew_fw)\n    baseline = np.clip(baseline, 0.2, 0.9)\n\n    # --- 4. 阈值微调 ---\n    threshold = baseline - 0.1 * (elasticity_factor - 1.0) + entropy_gain\n    threshold = np.clip(threshold, 0.2, 0.9)\n\n    # --- 5. 综合评分 ---\n    score = scarcity * elasticity_factor\n\n    return 1 if score > threshold else 0",
+      "objective": 235.6875
+    },
+    {
+      "concept": "本启发式在继承“相对稀缺性”与“机会成本评估”核心框架的基础上，引入“动态稀缺弹性系数”与“潜在价值熵增益”两个创新点。通过计算当前物品对剩余容量中“预期价值密度缺口”的填补程度（即稀缺弹性），取代传统的简单稀缺性比值；同时利用剩余物品价值密度分布的熵值变化（拿取后熵变）来评估该物品对后续决策空间多样性的影响——若拿取使熵显著降低（机会集中），则降低阈值鼓励拿取；若熵升高（机会分散），则提高阈值以保持谨慎。此外，采用“自适应保守基线”替代固定或分段阈值，该基线由剩余容量比例、当前索引位置以及剩余物品的“重量偏态系数”共同非线性调节，避免了繁琐的碎片化修正和局部窗口计算，在保持低计算复杂度的同时，增强了对物品分布结构变化的动态适应性。",
+      "feature": [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品信息\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # --- 1. 核心指标计算 ---\n    density = v / w if w > 0 else 0\n    avg_density_rem = total_rem_value / total_rem_weight if total_rem_weight > 0 else density\n\n    # 相对稀缺性 (原始)\n    value_ratio = v / total_rem_value if total_rem_value > 0 else 0\n    weight_ratio = w / remaining_capacity if remaining_capacity > 0 else 1\n    scarcity = value_ratio / (weight_ratio + 1e-8)\n\n    # 动态稀缺弹性系数：衡量当前物品填补“预期价值密度缺口”的程度\n    scarcity_elasticity = density / (avg_density_rem + 1e-8)\n    elasticity_factor = np.exp(scarcity_elasticity - 1.0)\n\n    # --- 2. 潜在价值熵增益 ---\n    if len(rem_weights) > 1:\n        rem_densities = rem_values / (rem_weights + 1e-8)\n        mean_d = np.mean(rem_densities)\n        std_d = np.std(rem_densities)\n        cv_before = std_d / (mean_d + 1e-8)\n\n        if scarcity_elasticity > 1.0:\n            entropy_gain = -0.1 * min(1.0, scarcity_elasticity - 1.0)\n        else:\n            entropy_gain = 0.1 * min(1.0, 1.0 - scarcity_elasticity)\n        cv_norm = min(cv_before / 2.0, 1.0)\n        entropy_gain *= (2.0 * cv_norm - 0.5)\n    else:\n        entropy_gain = 0.0\n\n    # --- 3. 自适应保守基线 ---\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 1:\n        mean_fw = np.mean(future_weights)\n        std_fw = np.std(future_weights)\n        skew_fw = np.mean((future_weights - mean_fw)**3) / (std_fw**3 + 1e-8)\n    else:\n        skew_fw = 0.0\n\n    total_weight = np.sum(weights)\n    cap_ratio = remaining_capacity / (total_weight + 1e-8)\n    position_factor = 1.0 - (current_index / num_items) * 0.2\n\n    base_line = 0.4 + 0.3 * (1.0 - cap_ratio) * position_factor\n    skew_adjust = 0.1 * max(0, skew_fw)\n    baseline = base_line + skew_adjust - 0.05 * max(0, -skew_fw)\n    baseline = np.clip(baseline, 0.2, 0.9)\n\n    # --- 4. 阈值微调 ---\n    threshold = baseline - 0.1 * (elasticity_factor - 1.0) + entropy_gain\n    threshold = np.clip(threshold, 0.2, 0.9)\n\n    # --- 5. 综合评分 ---\n    score = scarcity * elasticity_factor\n\n    return 1 if score > threshold else 0",
+      "objective": 235.6875
+    },
+    {
+      "concept": "基于对25个启发式的分析，新启发式保留“相对稀缺性”和“机会成本评估”核心框架，但简化了复杂计算，去除熵、变异系数、偏态系数等计算开销较大的统计指标。核心改进：1) 使用“动态稀缺弹性”（当前密度与剩余平均密度的比值）替代稀缺性乘以密度比的复合评分，直接作为核心评分，消除多重乘法带来的数值不稳定；2) 采用“自适应保守基线”作为动态阈值，仅由剩余容量比例和位置权重线性调节，避免分段阈值和碎片化修正；3) 引入“容量弹性引力”（当前重量与剩余重量均值的匹配度）作为评分乘数，以轻量化方式避免大件物品过早占据容量。整体计算复杂度降低至O(n)，同时保持对高密度物品的倾向性和对容量碎片化的自适应能力。",
+      "feature": [
+        "相对稀缺性",
+        "动态稀缺弹性",
+        "自适应保守基线",
+        "容量弹性引力"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items:\n        return 0\n    w = weights[current_index]\n    v = values[current_index]\n    if w > remaining_capacity:\n        return 0\n    if w == 0:\n        return 1\n\n    # 剩余物品统计\n    rem_weights = weights[current_index:]\n    rem_values = values[current_index:]\n    total_rem_weight = np.sum(rem_weights)\n    total_rem_value = np.sum(rem_values)\n    if total_rem_weight == 0:\n        return 1\n\n    # 当前密度和剩余平均密度\n    density = v / w\n    avg_density_rem = total_rem_value / total_rem_weight\n\n    # 动态稀缺弹性：当前密度与剩余平均密度的比值，作为核心评分\n    scarcity_elasticity = density / (avg_density_rem + 1e-8)\n    core_score = scarcity_elasticity\n\n    # 容量弹性引力：当前重量与剩余重量均值的匹配度\n    future_weights = weights[current_index+1:]\n    if len(future_weights) > 0:\n        mean_future_weight = np.mean(future_weights)\n        gravity = 1.0 - abs(w - mean_future_weight) / (max(w, mean_future_weight) + 1e-8)\n    else:\n        gravity = 1.0\n    score = core_score * gravity\n\n    # 自适应保守基线：基于剩余容量比例和位置权重\n    total_capacity = np.sum(weights)\n    cap_ratio = remaining_capacity / (total_capacity + 1e-8)\n    position_factor = 1.0 - (current_index / num_items) * 0.3  # 范围 0.7~1.0\n    baseline = 0.5 + 0.3 * (1.0 - cap_ratio) * position_factor\n    threshold = np.clip(baseline, 0.3, 0.9)\n\n    return 1 if score > threshold else 0",
+      "objective": 351.921875
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "机会成本评估",
+        "动态阈值",
+        "相对稀缺性"
+      ],
+      [
+        "潜在机会成本",
+        "多目标冲突度",
+        "动态分阶段阈值",
+        "离散度修正"
+      ],
+      [
+        "冲突度评估",
+        "动态评分",
+        "容量碎片化感知",
+        "非线性融合阈值",
+        "前瞻模拟微调"
+      ],
+      [
+        "轻量级机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重",
+        "价值密度比加权",
+        "容量碎片化修正"
+      ],
+      [
+        "机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重",
+        "价值密度比加权"
+      ],
+      [
+        "机会成本评估",
+        "相对稀缺性",
+        "动态保守阈值",
+        "位置权重"
+      ],
+      [
+        "预期价值衰减",
+        "容量弹性博弈",
+        "动态决策基准线",
+        "分布偏度感知",
+        "价值-容量博弈比"
+      ],
+      [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ],
+      [
+        "相对稀缺性",
+        "机会成本评估",
+        "动态稀缺弹性系数",
+        "潜在价值熵增益",
+        "自适应保守基线",
+        "重量偏态调节"
+      ]
+    ],
+    "negative_features": [
+      [
+        "深度冲突度评估",
+        "双维度熵权分析",
+        "全局稀缺性量化",
+        "三级分段自适应阈值",
+        "容量紧张非线性惩罚",
+        "轻量级前瞻微调"
+      ],
+      [
+        "矛盾归因分析",
+        "动态补偿因子",
+        "历史满意度反馈"
+      ],
+      [
+        "局部密度窗口",
+        "记忆回退机制",
+        "动态排名阈值",
+        "容量浪费惩罚"
+      ],
+      [
+        "价值密度快速筛选",
+        "冲突度评估",
+        "容量碎片化感知",
+        "双阶段脉冲决策",
+        "敏捷动态阈值"
+      ],
+      [
+        "概率匹配",
+        "可行域收缩",
+        "容量占用效率",
+        "期望边际价值",
+        "非线性概率决策"
+      ],
+      [
+        "抗干扰鲁棒性评分",
+        "剩余空间匹配度",
+        "价值动量",
+        "风险补偿因子",
+        "非线性动态阈值"
+      ],
+      [
+        "机会成本评估",
+        "相对稀缺性",
+        "密度比加权",
+        "动态保守阈值",
+        "位置权重",
+        "容量碎片化感知"
+      ],
+      [
+        "容量机会损害度",
+        "价值-损害杠杆比",
+        "剩余容量寿命比",
+        "逆向因果评估",
+        "动态压力因子"
+      ],
+      [
+        "多维稀缺性评估",
+        "分位数动态阈值",
+        "单位容量价值提升率",
+        "碎片化惩罚修正",
+        "非线性评分融合"
+      ]
+    ]
+  }
+}

@@ -407,11 +407,12 @@ def summarize_features(feature_list, max_total=15, scenario_id="tsp"):
     return result
 
 
-def format_for_prompt(feature_list, label="积极特征", scenario_id="tsp"):
-    """格式化特征用于 LLM 提示词（场景感知）"""
+def format_for_prompt(feature_list, label="积极特征", scenario_id="tsp", lang="zh"):
+    """格式化特征用于 LLM 提示词（场景感知，支持中英）"""
     if not feature_list:
         return ""
     organized = organize_features(feature_list, scenario_id)
+    is_en = lang == 'en'
     lines = [f"### {label}"]
     for category, subcats in organized.items():
         cat_items = []
@@ -428,7 +429,7 @@ def format_for_prompt(feature_list, label="积极特征", scenario_id="tsp"):
                     strs = [" + ".join(tags) for tags in items]
                     line = f"  [{name}] {', '.join(strs[:3])}"
                     if len(strs) > 3:
-                        line += f" ... (+{len(strs)-3})"
+                        line += f" ... (+{len(strs)-3})" if is_en else f" ... (+{len(strs)-3})"
                     lines.append(line)
         else:
             strs = [" + ".join(tags) for tags in cat_items]
@@ -502,20 +503,31 @@ class TagMemory:
     def to_dict(self):
         return {"positive_features": self.positive, "negative_features": self.negative}
     
-    def format_prompt_section(self):
+    def format_prompt_section(self, lang="zh"):
         parts = []
-        pos_str = format_for_prompt(self.positive, "积极经验", self.scenario_id)
-        neg_str = format_for_prompt(self.negative, "消极经验", self.scenario_id)
+        is_en = lang == 'en'
+        pos_label = "Positive Experience" if is_en else "积极经验"
+        neg_label = "Negative Experience" if is_en else "消极经验"
+        pos_str = format_for_prompt(self.positive, pos_label, self.scenario_id, lang=lang)
+        neg_str = format_for_prompt(self.negative, neg_label, self.scenario_id, lang=lang)
         hot = sorted([(t, s["pos"], s["avg_obj"])
                      for t, s in self.tag_stats.items() if s["pos"] >= 2],
                     key=lambda x: x[1], reverse=True)[:5]
         if hot:
-            sline = "### 高频标签排名\n"
-            for tag, cnt, obj in hot:
-                sline += f"  [{tag}] 出现{cnt}次"
-                if obj > 0:
-                    sline += f", 平均适应度 {obj:.3f}"
-                sline += "\n"
+            if is_en:
+                sline = "### Frequent Tag Ranking\n"
+                for tag, cnt, obj in hot:
+                    sline += f"  [{tag}] appears {cnt} times"
+                    if obj > 0:
+                        sline += f", avg fitness {obj:.3f}"
+                    sline += "\n"
+            else:
+                sline = "### 高频标签排名\n"
+                for tag, cnt, obj in hot:
+                    sline += f"  [{tag}] 出现{cnt}次"
+                    if obj > 0:
+                        sline += f", 平均适应度 {obj:.3f}"
+                    sline += "\n"
             parts.append(sline)
         if pos_str:
             parts.append(pos_str)

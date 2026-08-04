@@ -8,84 +8,145 @@ from core.tag_memory import format_for_prompt, classify_tag
 
 
 class prompt_template():
-    def __init__(self, problem, fun_name, fun_args, fun_return, fun_notes):
+    def __init__(self, problem, fun_name, fun_args, fun_return, fun_notes, lang='zh'):
         self.problem = problem
+        self.lang = lang if lang in ('zh', 'en') else 'zh'
 
-        fun_requirement = (f"用Python实现一个名为{fun_name}的函数。\n"
-                           f"该函数应接受{len(fun_args)}个输入：")
+        is_en = self.lang == 'en'
+        if is_en:
+            req_intro = (f"Implement a Python function named {fun_name}.\n"
+                         f"The function should accept {len(fun_args)} input(s): ")
+            req_join = ", "
+            req_out = f"The function should return {len(fun_return)} output(s): "
+            req_tail = f".\n{fun_notes}\n"
+        else:
+            req_intro = (f"用Python实现一个名为{fun_name}的函数。\n"
+                         f"该函数应接受{len(fun_args)}个输入：")
+            req_join = ", "
+            req_out = f"；\n函数应返回{len(fun_return)}个输出："
+            req_tail = f"。\n{fun_notes}\n"
+
+        fun_requirement = req_intro
         amount_args = len(fun_args)
         for arg in fun_args:
             fun_requirement += f"'{arg}'"
             amount_args -= 1
             if amount_args >= 1:
-                fun_requirement += ", "
-
-        fun_requirement += f"；\n函数应返回{len(fun_return)}个输出："
+                fun_requirement += req_join
+        fun_requirement += req_out
         amount_return = len(fun_return)
         for val in fun_return:
             fun_requirement += f"'{val}'"
             amount_return -= 1
-            if amount_args >= 1:
-                fun_requirement += ", "
-        fun_requirement += f"。\n{fun_notes}\n"
+            if amount_return >= 1:
+                fun_requirement += req_join
+        fun_requirement += req_tail
 
         # 启发式输出要求 — 新增 tags 格式
-        self.output_requirement = (
-            "你需要分别提供以下四个部分：\n"
-            " - 该启发式的思想概念，用大括号包裹\n"
-            " - 该启发式的策略标签，每个标签用方括号包裹，多个标签用+连接，用大括号包裹\n"
-            "   例如：{ [贪婪搜索] + [随机抖动] + [最近邻] }\n"
-            " - 该启发式的python代码，写在代码块里\n"
-            "请按如下格式给出回复：\n"
-            "{ 这里写思想概念 }\n"
-            "{ [标签1] + [标签2] + [标签3] }\n"
-            "```python\n这里写代码实现```\n"
-        )
+        if is_en:
+            self.output_requirement = (
+                "You need to provide the following parts:\n"
+                " - The conceptual idea of the heuristic, wrapped in curly braces\n"
+                " - The strategy tags of the heuristic, each tag wrapped in square brackets, joined by +, all wrapped in curly braces\n"
+                "   e.g.: { [Greedy Search] + [Random Perturbation] + [Nearest Neighbor] }\n"
+                " - The Python code of the heuristic, written in a code block\n"
+                "Please reply in the following format:\n"
+                "{ write the conceptual idea here }\n"
+                "{ [Tag1] + [Tag2] + [Tag3] }\n"
+                "```python\nwrite the code here```\n"
+            )
+        else:
+            self.output_requirement = (
+                "你需要分别提供以下四个部分：\n"
+                " - 该启发式的思想概念，用大括号包裹\n"
+                " - 该启发式的策略标签，每个标签用方括号包裹，多个标签用+连接，用大括号包裹\n"
+                "   例如：{ [贪婪搜索] + [随机抖动] + [最近邻] }\n"
+                " - 该启发式的python代码，写在代码块里\n"
+                "请按如下格式给出回复：\n"
+                "{ 这里写思想概念 }\n"
+                "{ [标签1] + [标签2] + [标签3] }\n"
+                "```python\n这里写代码实现```\n"
+            )
 
         self.fun_requirement = fun_requirement
 
         # 进化策略
-        self.strategy_MUT = "请你设计一个与现有的这些启发式算法尽可能不同的新启发式算法。\n"
-        self.strategy_HYB = "请你综合现有的这些启发式算法的关键思想，设计一个新的启发式算法。\n"
-        self.strategy_OPT = ("请你对现有的这个启发式进行优化，"
-                             "使用包括但不限于调整其参数值、对其进行复杂度层面的优化或精简其结构等方式，得到一个新的启发式算法。\n")
-
-        # 分析提示词
-        self.analyze = ("\n请你梳理所有信息，进行一个长度在200字内的分析。\n"
-                        "你可以将构思新启发式需要纳入考量的条件列举出来，并分析该如何进行设计构思或改进，以得到新的启发式。\n"
-                        "不要进行任何代码实现，只给出修改的目标，并构思如何设计新启发式。")
+        if is_en:
+            self.strategy_MUT = "Design a new heuristic algorithm that is as different as possible from the existing heuristic algorithms.\n"
+            self.strategy_HYB = "Synthesize the key ideas of the existing heuristic algorithms and design a new heuristic algorithm.\n"
+            self.strategy_OPT = ("Optimize the existing heuristic, using methods including but not limited to "
+                                 "tuning its parameter values, optimizing its time/space complexity, or simplifying "
+                                 "its structure, to obtain a new heuristic algorithm.\n")
+            self.analyze = ("\nPlease review all the information and provide an analysis within 200 characters.\n"
+                            "You may list the conditions that need to be considered when designing a new heuristic "
+                            "and analyze how to design or improve it, so as to obtain a new heuristic.\n"
+                            "Do not implement any code. Only give the improvement goals and describe how to design the new heuristic.")
+        else:
+            self.strategy_MUT = "请你设计一个与现有的这些启发式算法尽可能不同的新启发式算法。\n"
+            self.strategy_HYB = "请你综合现有的这些启发式算法的关键思想，设计一个新的启发式算法。\n"
+            self.strategy_OPT = ("请你对现有的这个启发式进行优化，"
+                                 "使用包括但不限于调整其参数值、对其进行复杂度层面的优化或精简其结构等方式，得到一个新的启发式算法。\n")
+            self.analyze = ("\n请你梳理所有信息，进行一个长度在200字内的分析。\n"
+                            "你可以将构思新启发式需要纳入考量的条件列举出来，并分析该如何进行设计构思或改进，以得到新的启发式。\n"
+                            "不要进行任何代码实现，只给出修改的目标，并构思如何设计新启发式。")
 
     def prompt_initial_single(self):
-        prompt = f"设计一个解决以下问题的启发式算法：\n{self.problem}\n"
-        prompt += self.output_requirement
-        prompt += f"注意：{self.fun_requirement}\n不要提供额外解释。"
+        if self.lang == 'en':
+            prompt = f"Design a heuristic algorithm to solve the following problem:\n{self.problem}\n"
+            prompt += self.output_requirement
+            prompt += f"Note: {self.fun_requirement}\nDo not provide extra explanations."
+        else:
+            prompt = f"设计一个解决以下问题的启发式算法：\n{self.problem}\n"
+            prompt += self.output_requirement
+            prompt += f"注意：{self.fun_requirement}\n不要提供额外解释。"
         return prompt
 
     def prompt_evolve(self, strategy, parent_heuristics, positive_features, negative_features):
+        is_en = self.lang == 'en'
         prompt_group = []
-        condition_prompt = f"你需要协助我设计一个用于解决如下问题的启发式：{self.problem}\n"
+        if is_en:
+            condition_prompt = f"You are helping me design a heuristic to solve the following problem: {self.problem}\n"
+            condition_prompt += f"\n### Existing Heuristics\nI currently have the following {len(parent_heuristics)} heuristics:\n"
+        else:
+            condition_prompt = f"你需要协助我设计一个用于解决如下问题的启发式：{self.problem}\n"
+            condition_prompt += f"\n### 已有启发式\n我这里有如下{len(parent_heuristics)}个启发式：\n"
 
-        condition_prompt += f"\n### 已有启发式\n我这里有如下{len(parent_heuristics)}个启发式：\n"
         for i in range(len(parent_heuristics)):
             # If feature is a string (legacy), keep display; if list of tags, join
             feat_display = parent_heuristics[i].get('feature', '')
             if isinstance(feat_display, list):
                 feat_display = ' + '.join(feat_display)
 
-            condition_prompt += (f"\n#### 启发式_{i + 1}\n"
-                                 f"思想概念：{parent_heuristics[i]['concept']}\n"
-                                 f"策略标签：{feat_display}\n"
-                                 f"代码如下\n```python{parent_heuristics[i]['algorithm']}```\n")
+            if is_en:
+                condition_prompt += (f"\n#### Heuristic_{i + 1}\n"
+                                     f"Concept: {parent_heuristics[i]['concept']}\n"
+                                     f"Strategy tags: {feat_display}\n"
+                                     f"Code:\n```python{parent_heuristics[i]['algorithm']}```\n")
+            else:
+                condition_prompt += (f"\n#### 启发式_{i + 1}\n"
+                                     f"思想概念：{parent_heuristics[i]['concept']}\n"
+                                     f"策略标签：{feat_display}\n"
+                                     f"代码如下\n```python{parent_heuristics[i]['algorithm']}```\n")
 
         if positive_features or negative_features:
-            condition_prompt += "\n### 研究经验"
-            # 使用分层记忆格式化
-            if positive_features:
-                condition_prompt += "\n" + format_for_prompt(positive_features, "积极经验")
-            if negative_features:
-                condition_prompt += "\n" + format_for_prompt(negative_features, "消极经验")
+            if is_en:
+                condition_prompt += "\n### Research Experience"
+                if positive_features:
+                    condition_prompt += "\n" + format_for_prompt(positive_features, "Positive Experience", lang=self.lang)
+                if negative_features:
+                    condition_prompt += "\n" + format_for_prompt(negative_features, "Negative Experience", lang=self.lang)
+            else:
+                condition_prompt += "\n### 研究经验"
+                # 使用分层记忆格式化
+                if positive_features:
+                    condition_prompt += "\n" + format_for_prompt(positive_features, "积极经验", lang=self.lang)
+                if negative_features:
+                    condition_prompt += "\n" + format_for_prompt(negative_features, "消极经验", lang=self.lang)
 
-        condition_prompt += "\n### 优化策略\n"
+        if is_en:
+            condition_prompt += "\n### Optimization Strategy\n"
+        else:
+            condition_prompt += "\n### 优化策略\n"
 
         if strategy == 'MUTATION':
             condition_prompt += self.strategy_MUT
@@ -95,9 +156,14 @@ class prompt_template():
             condition_prompt += self.strategy_OPT
 
         # 将分析和生成合并为一个提示词，减少一次LLM调用
-        result_prompt = self.analyze + "\n\n接下来，请直接完成这个新的启发式。\n"
-        result_prompt += self.output_requirement
-        result_prompt += f"注意，{self.fun_requirement}\n不要提供额外解释"
+        if is_en:
+            result_prompt = self.analyze + "\n\nNext, please directly complete this new heuristic.\n"
+            result_prompt += self.output_requirement
+            result_prompt += f"Note: {self.fun_requirement}\nDo not provide extra explanations"
+        else:
+            result_prompt = self.analyze + "\n\n接下来，请直接完成这个新的启发式。\n"
+            result_prompt += self.output_requirement
+            result_prompt += f"注意，{self.fun_requirement}\n不要提供额外解释"
 
         # 一次性输出：先分析，后直接给出代码
         single_prompt = condition_prompt + "\n" + result_prompt
@@ -168,7 +234,7 @@ if __name__ == "__main__":
         }
     }
 
-    api_key = "sk-YOUR_API_KEY_XXXXXX"
+    api_key = "sk-YOU…XXXX"
     base_url = "https://api.deepseek.com/v1"
     llm_model = "deepseek-chat"
     if_stream = False

@@ -1,0 +1,220 @@
+{
+  "heuristics": [
+    {
+      "concept": "本启发式基于“价值-重量互补竞争”思想，设计了一个新颖的“剩余容量片段竞争”机制。核心概念是将剩余容量视为一系列可竞争的“容量片段”，每个片段对应一个虚拟的平均价值密度。当前物品的价值密度与这些片段逐一竞争，通过一个“竞争深度”指标来衡量物品在多大程度上能胜出多个片段。竞争深度越高，物品的“相对核心竞争力”越强。同时引入一个“容量碎片承压比”，用于感知当前物品重量与剩余容量之间的“微尺度”压力，避免在容量紧张时选择恰好卡死后续空间的物品。最终通过一个由决策进度和竞争深度共同调制的动态阈值进行决策。整个算法完全舍弃了前瞻、随机、熵或协同矩阵，构建了一个基于“微观竞争力”的确定性决策体系。",
+      "feature": [
+        "容量片段竞争",
+        "价值密度",
+        "竞争深度",
+        "容量碎片承压比",
+        "微观竞争力",
+        "确定性决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 边界条件\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 基础属性\n    w = weights[current_index]\n    v = values[current_index]\n    density = v / (w + 1e-8)\n\n    # 2. 剩余容量片段竞争机制\n    # 将剩余容量均匀分成 N 个虚拟片段（这里取 min(10, 剩余容量) 个片段）\n    num_segments = min(10, int(remaining_capacity))\n    if num_segments == 0:\n        return 0\n    segment_size = remaining_capacity / num_segments\n\n    # 计算已处理物品的平均价值密度（作为虚拟片段的竞争基准）\n    if current_index > 0:\n        prev_densities = values[:current_index] / (weights[:current_index] + 1e-8)\n        # 取指数加权平均，使近期决策影响更大（尾部加权）\n        weights_prev = np.exp(np.linspace(-0.5, 0, current_index))  # 近期权重更大\n        weights_prev = weights_prev / np.sum(weights_prev)\n        avg_density_competitor = np.sum(prev_densities * weights_prev)\n    else:\n        # 第一个物品，使用全局平均密度作为基准\n        avg_density_competitor = np.sum(values) / (np.sum(weights) + 1e-8)\n\n    # 计算当前物品能“战胜”多少个片段\n    # 每个片段如果被占据，理论上可以放一个密度为 avg_density_competitor 的物品\n    # 当前物品的价值密度 vs 战胜一个片段所需的“等价价值”\n    # 等价价值 = avg_density_competitor * (w / segment_size)  —— 即相同重量下能装多少个片段\n    fragments_won = 0\n    for s in range(num_segments):\n        # 当前片段可以被一个密度为 avg_density_competitor 的理想物品填充 segment_size 重量\n        # 当前物品需要证明自己的价值密度优于 avg_density_competitor 才叫“赢”\n        # 但更细化：考虑如果当前物品占据该片段一部分重量，其效率需高于基准\n        # 简化：直接比较密度, 且考虑重量占用多个片段的累积效应\n        if density > avg_density_competitor:\n            fragments_won += 1\n        else:\n            # 一旦密度不如基准，后续片段也无法战胜（因为密度固定）\n            break\n\n    # 实际竞争深度：考虑物品重量跨越的片段数\n    segments_occupied = int(np.ceil(w / segment_size))\n    # 竞争深度 = 战胜的片段数 / 必须占用的片段数 (反映每个被占用的片段是否都“有价值”）\n    competition_depth = fragments_won / (segments_occupied + 1e-8)\n\n    # 3. 容量碎片承压比：物品重量与剩余容量模片段大小的关系\n    # 如果物品重量导致剩余容量变成难以利用的“小碎片”，惩罚\n    remaining_after_take = remaining_capacity - w\n    if remaining_after_take > 0:\n        # 剩余容量被片段大小除后的余数，越小说明碎片化越严重\n        fragment_residue = remaining_after_take % segment_size\n        # 承压比 = 残留碎片占片段大小的比例，越小越糟糕（压力大）\n        pressure_ratio = (fragment_residue + 1e-8) / (segment_size + 1e-8)\n        # 将压力比反向，使压力大时阈值提升\n        pressure_factor = 1.0 - pressure_ratio  # 压力大(残差小) -> factor接近1 -> 难通过\n    else:\n        pressure_factor = 0.0  # 恰好装满，没有碎片压力\n\n    # 4. 自适应动态阈值\n    # 基础阈值由竞争深度决定：竞争深度高则阈值低（易通过），竞争深度低则阈值高（难通过）\n    progress = current_index / num_items  # 决策进度\n    # 竞争深度调整：深度越高，阈值越低，接受倾向越强\n    depth_modulation = np.clip(1.0 - competition_depth, 0.1, 1.0)\n    # 碎片压力调整：压力大(即pressure_factor大)时提高阈值\n    pressure_modulation = 1.0 + 0.5 * pressure_factor\n    # 进度修正：前期更谨慎，后期更果断\n    progress_modulation = 1.0 - 0.3 * progress\n\n    threshold = depth_modulation * pressure_modulation * progress_modulation\n\n    # 5. 确定性决策\n    # 阈值小于1表示“竞争深度高”所以容易通过；反之则难\n    if density > threshold * (np.sum(values) / (np.sum(weights) + 1e-8)):\n        return 1\n    else:\n        return 0",
+      "objective": 205.59375
+    },
+    {
+      "concept": "本启发式在已有积极经验（价值密度 + 容量压力感知 + 重量冲击惩罚 + 非线性动态阈值 + 确定性决策）基础上，通过参数简化和阈值结构优化实现改进。核心创新是将原复杂的分段衰减与多因子调制合并为一个**统一的双因素非线性阈值**：仅保留容量压力因子（决定指数衰减基底）和重量冲击因子（线性惩罚），并引入一个随剩余物品数量线性衰减的**进度松弛系数**，使后期阈值自然降低以避免过度保守。同时移除历史基线、相对优势、小物品奖励等冗余机制，降低参数敏感性。该设计保持O(1)复杂度与完全确定性，在极端分布下更具鲁棒性。",
+      "feature": [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "进度松弛感知",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 边界条件：超出范围或装不下则放弃\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品的价值密度\n    density = values[current_index] / (weights[current_index] + 1e-8)\n\n    # 2. 计算容量压力因子：剩余容量占所有物品总重的比例\n    total_weight = np.sum(weights)\n    capacity_ratio = remaining_capacity / (total_weight + 1e-8)\n\n    # 3. 计算重量冲击因子：物品重量占剩余容量的比例\n    weight_impact = weights[current_index] / (remaining_capacity + 1e-8)\n\n    # 4. 进度松弛系数：随剩余物品数减少而线性降低阈值（后期更宽容）\n    remaining_items = num_items - current_index\n    progress_factor = 0.7 + 0.3 * (remaining_items / num_items)  # 从1.0降到0.7\n\n    # 5. 构造非线性动态阈值（双因素模型）\n    # 基础阈值：容量越紧张阈值指数升高\n    base_threshold = np.exp(-5.0 * capacity_ratio)\n    # 阈值 = (基础阈值 + 重量冲击惩罚) * 进度松弛\n    threshold = (base_threshold + 0.8 * weight_impact) * progress_factor\n\n    # 6. 确定性决策\n    if density > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 251.671875
+    },
+    {
+      "concept": "本启发式基于对现有17个启发式的系统分析，从积极经验中提炼出“价值密度+容量压力感知+重量冲击惩罚+非线性动态阈值+确定性决策”这一核心框架，并吸收消极经验中避免过度复杂的前瞻、熵和协同矩阵的教训。新启发式的改进目标是在保持O(1)复杂度和完全确定性的前提下，通过参数简化和阈值结构优化提升鲁棒性。核心改进点包括：1) 将原启发式中复杂的多因子调制（如历史基线、相对优势、分段惩罚、小物品奖励）合并为统一的双因素非线性阈值，仅保留容量压力因子（决定指数衰减基底）和重量冲击因子（线性惩罚）；2) 引入一个随剩余物品数线性衰减的进度松弛系数，使后期阈值自然降低以避免过度保守；3) 调整指数衰减系数和重量冲击惩罚系数至更鲁棒的值。整体设计精简，参数物理意义明确，增强了对极端分布与容量临界状态的适应性。\n{ [价值密度] + [容量压力感知] + [重量冲击惩罚] + [进度松弛感知] + [非线性动态阈值] + [确定性决策]",
+      "feature": [],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    density = values[current_index] / (weights[current_index] + 1e-8)\n    total_weight = np.sum(weights)\n    capacity_ratio = remaining_capacity / (total_weight + 1e-8)\n    weight_impact = weights[current_index] / (remaining_capacity + 1e-8)\n    remaining_items = num_items - current_index\n    progress_factor = 0.7 + 0.3 * (remaining_items / num_items)\n    base_threshold = np.exp(-5.0 * capacity_ratio)\n    threshold = (base_threshold + 0.8 * weight_impact) * progress_factor\n\n    if density > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 251.671875
+    },
+    {
+      "concept": "该启发式基于对现有确定性阈值方法的分析，发现两个改进点：1) 单一阈值在容量极端紧张时可能过度保守，导致错过高价值密度但稍重的物品；2) 重量冲击惩罚的线性形式缺乏对物品价值的补偿。新设计引入**价值-重量权衡因子**，在阈值中同时考虑物品的绝对价值贡献和重量占用效益比。通过**双阶段阈值结构**：第一阶段用价值密度与动态阈值比较，若通过则再用**价值补偿因子**（物品价值与剩余价值均值的比值）进行二次筛选，避免因重量惩罚错失高价值物品。同时，将指数函数的衰减系数从固定值改为随剩余物品数自适应，在决策后期提高灵敏度。保留确定性、O(1)复杂度特性，增强对极端分布的鲁棒性。",
+      "feature": [
+        "价值密度",
+        "重量冲击因子",
+        "容量压力感知",
+        "价值补偿因子",
+        "自适应衰减系数",
+        "双阶段确定性决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 边界条件：超出范围或装不下则放弃\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品的价值密度\n    density = values[current_index] / (weights[current_index] + 1e-8)\n\n    # 2. 计算重量冲击因子\n    weight_impact = weights[current_index] / (remaining_capacity + 1e-8)\n\n    # 3. 计算容量压力因子\n    total_weight = np.sum(weights)\n    capacity_ratio = remaining_capacity / (total_weight + 1e-8)\n\n    # 4. 自适应衰减系数：根据剩余物品数量调整指数衰减速度\n    remaining_items = num_items - current_index\n    decay_factor = -5.0 * (1.0 + 0.2 * (1.0 - remaining_items / num_items))  # 后期更敏感\n    base_threshold = np.exp(decay_factor * capacity_ratio)\n\n    # 5. 第一阶段阈值：含重量冲击\n    threshold = base_threshold + 0.8 * weight_impact\n\n    # 6. 第一阶段决策：如果价值密度不超过阈值，直接拒绝\n    if density <= threshold:\n        return 0\n\n    # 7. 第二阶段：价值补偿因子——物品价值与剩余物品平均价值的比值\n    remaining_values = values[current_index:]\n    avg_remaining_value = np.mean(remaining_values) if len(remaining_values) > 0 else 1.0\n    value_compensation = values[current_index] / (avg_remaining_value + 1e-8)\n\n    # 8. 补偿阈值：若价值显著高于平均水平，即使密度略超也接受\n    compensation_threshold = 1.2 + 0.3 * (1.0 - capacity_ratio)  # 容量紧张时要求更高补偿\n    if value_compensation >= compensation_threshold:\n        return 1\n\n    # 9. 默认通过条件：密度超过阈值且重量冲击不太大\n    if weight_impact < 0.6:\n        return 1\n    else:\n        return 0",
+      "objective": 298.78125
+    },
+    {
+      "concept": "本启发式通过融合价值密度、容量压力、重量冲击与剩余价值潜力，构建一个三阶段自适应决策机制。第一阶段利用价值密度与动态阈值进行比较，阈值由容量压力与重量冲击非线性组合生成；第二阶段引入剩余价值潜力因子，根据剩余物品的平均价值密度调整决策倾向，避免在后期因保守而错失高价值物品；第三阶段加入重量惩罚补偿机制，当物品重量占剩余容量比例过高时，通过价值密度增益来抵消重量冲击，从而在极端分布下保持决策的鲁棒性。该设计保留O(1)复杂度和完全确定性。",
+      "feature": [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "剩余价值潜力因子",
+        "三阶段自适应决策",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 边界条件\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 计算当前物品的价值密度\n    density = values[current_index] / (weights[current_index] + 1e-8)\n\n    # 计算重量冲击因子\n    weight_impact = weights[current_index] / (remaining_capacity + 1e-8)\n\n    # 计算容量压力因子\n    total_weight = np.sum(weights)\n    capacity_ratio = remaining_capacity / (total_weight + 1e-8)\n\n    # 计算剩余物品的平均价值密度（剩余价值潜力因子）\n    remaining_weights = weights[current_index:]\n    remaining_values = values[current_index:]\n    # 避免除零\n    total_remaining_weight = np.sum(remaining_weights)\n    avg_remaining_density = np.sum(remaining_values) / (total_remaining_weight + 1e-8)\n    # 当前物品密度与剩余平均密度的比值\n    density_ratio = density / (avg_remaining_density + 1e-8)\n\n    # 第一阶段：基础动态阈值（非线性）\n    base_threshold = np.exp(-5.0 * capacity_ratio)\n    # 加上重量冲击惩罚项\n    threshold = base_threshold + 0.8 * weight_impact\n\n    # 第一阶段决策：若密度不超过阈值，则拒绝\n    if density <= threshold:\n        return 0\n\n    # 第二阶段：考虑剩余价值潜力，根据剩余物品平均密度调整决策倾向\n    # 当剩余物品平均密度较高时，当前物品需要更高的相对密度才能被接受\n    if density_ratio < 0.7:\n        return 0\n\n    # 第三阶段：重量惩罚补偿机制\n    # 如果物品较重（重量冲击大），但价值密度显著高于剩余平均，则予以补偿\n    if weight_impact > 0.5 and density_ratio > 1.5:\n        return 1\n\n    # 默认通过\n    if weight_impact < 0.6:\n        return 1\n    else:\n        return 0",
+      "objective": 299.890625
+    },
+    {
+      "concept": "基于对现有21个启发式的系统分析，发现多数方法存在两个核心问题：1) 过度依赖复杂的前瞻预测或博弈模型导致计算开销大且参数敏感；2) 随机扰动机制破坏了决策的确定性与可复现性。本新启发式采用极简主义设计，彻底舍弃前瞻扫描与随机扰动，仅利用当前物品的价值密度、重量冲击以及剩余容量比例三个线性指标构造动态阈值。通过将容量压力感知与重量冲击惩罚相结合，在容量紧张时自动提高决策门槛，在容量充裕时保持宽松，实现自适应决策。该设计确保了O(1)时间复杂度和完全确定性，同时通过非线性组合增强了对极端情况的鲁棒性。",
+      "feature": [
+        "价值密度",
+        "重量冲击因子",
+        "容量压力感知",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 边界条件：超出范围或装不下则放弃\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品的价值密度\n    density = values[current_index] / weights[current_index]\n\n    # 2. 计算重量冲击因子：物品重量占剩余容量的比例，衡量对后续空间的挤压程度\n    weight_impact = weights[current_index] / (remaining_capacity + 1e-8)\n\n    # 3. 计算容量压力因子：剩余容量占所有物品总重的比例，衡量整体容量紧张程度\n    total_weight = np.sum(weights)\n    capacity_ratio = remaining_capacity / (total_weight + 1e-8)\n\n    # 4. 构造非线性动态阈值\n    # 基础阈值：当容量充足(ratio接近1)时阈值较低，容量紧张(ratio接近0)时阈值指数级升高\n    # 使用指数函数实现非线性：e^(-5*ratio)在ratio=0时趋近1，ratio=1时趋近0.0067\n    # 加上重量冲击的线性惩罚项，避免选择过重的物品\n    base_threshold = np.exp(-5.0 * capacity_ratio)\n    threshold = base_threshold + 0.8 * weight_impact\n\n    # 5. 确定性决策\n    if density > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 314.390625
+    },
+    {
+      "concept": "本启发式基于对现有22个启发式的系统分析，发现过度复杂的博弈模型和随机扰动机制导致计算开销大、参数敏感且不可复现。优化目标是构建一个极致简约、确定且鲁棒的启发式。核心思想是：完全舍弃前瞻扫描与随机扰动，仅利用当前物品的**价值密度**作为核心评估指标，结合**容量压力感知**（剩余容量占比）和**重量冲击惩罚**（物品重量/剩余容量）两个线性因子构造动态阈值。通过非线性指数函数让阈值随容量紧张程度自适应快速提升，确保在容量稀缺时严格筛选高价值物品，在容量充裕时保持宽松。该设计实现了O(1)时间复杂度和完全确定性决策，参数极少且物理意义明确。",
+      "feature": [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      "algorithm": "import numpy as np\n\ndef select_item(current_index, remaining_capacity, weights, values, num_items):\n    # 边界条件：超出范围或装不下则放弃\n    if current_index >= num_items or weights[current_index] > remaining_capacity:\n        return 0\n\n    # 1. 计算当前物品的价值密度\n    density = values[current_index] / weights[current_index]\n\n    # 2. 计算重量冲击因子：物品重量占剩余容量的比例，衡量对后续空间的挤压程度\n    weight_impact = weights[current_index] / (remaining_capacity + 1e-8)\n\n    # 3. 计算容量压力因子：剩余容量占所有物品总重的比例，衡量整体容量紧张程度\n    total_weight = np.sum(weights)\n    capacity_ratio = remaining_capacity / (total_weight + 1e-8)\n\n    # 4. 构造非线性动态阈值\n    # 基础阈值：当容量充足(ratio接近1)时阈值较低，容量紧张(ratio接近0)时阈值指数级升高\n    # 使用指数函数实现非线性：e^(-5*ratio)在ratio=0时趋近1，ratio=1时趋近0.0067\n    base_threshold = np.exp(-5.0 * capacity_ratio)\n    # 加上重量冲击的线性惩罚项，避免选择过重的物品\n    threshold = base_threshold + 0.8 * weight_impact\n\n    # 5. 确定性决策\n    if density > threshold:\n        return 1\n    else:\n        return 0",
+      "objective": 314.390625
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "价值密度",
+        "重量冲击因子",
+        "容量压力感知",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      [
+        "价值密度",
+        "重量冲击因子",
+        "容量压力感知",
+        "价值补偿因子",
+        "自适应衰减系数",
+        "双阶段确定性决策"
+      ],
+      [
+        "价值密度",
+        "重量冲击因子",
+        "容量压力感知",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "非线性动态阈值",
+        "确定性决策"
+      ],
+      [
+        "容量片段竞争",
+        "价值密度",
+        "竞争深度",
+        "容量碎片承压比",
+        "微观竞争力",
+        "确定性决策"
+      ],
+      [
+        "价值密度",
+        "容量压力感知",
+        "重量冲击惩罚",
+        "进度松弛感知",
+        "非线性动态阈值",
+        "确定性决策"
+      ]
+    ],
+    "negative_features": [
+      [
+        "信息熵评估",
+        "协同矩阵",
+        "自适应熵阈值"
+      ],
+      [
+        "价值密度",
+        "简单前瞻",
+        "容量压力感知",
+        "线性自适应阈值",
+        "确定性决策"
+      ],
+      [
+        "容量熵",
+        "概率共振",
+        "相位差检测",
+        "动态衰减阈值"
+      ],
+      [
+        "价值密度",
+        "协同矩阵",
+        "自适应熵阈值"
+      ],
+      [
+        "价值密度",
+        "重量冲击衰减",
+        "容量压力感知",
+        "Logistic平滑阈值",
+        "剩余物品补偿",
+        "确定性决策"
+      ],
+      [
+        "相对价值密度",
+        "容量填充度感知",
+        "线性分段阈值",
+        "重量冲击直接衰减",
+        "确定性决策"
+      ],
+      [
+        "结构互补匹配",
+        "互补稀缺度",
+        "填充紧迫度",
+        "非对称响应函数",
+        "确定性决策"
+      ],
+      [
+        "负熵流评估",
+        "价值-重量耦合熵",
+        "竞争熵差",
+        "动态机会成本系数",
+        "容量离散度感知",
+        "熵平衡衰减阈值",
+        "确定性决策"
+      ],
+      [
+        "价值密度",
+        "相对价值溢价",
+        "容量弹性系数",
+        "动态双阈值",
+        "复合条件决策",
+        "确定性决策"
+      ],
+      [
+        "价值密度-重量分布差异度",
+        "分布特征感知",
+        "容量沉降比",
+        "确定性决策"
+      ]
+    ]
+  }
+}

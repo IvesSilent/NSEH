@@ -1,0 +1,78 @@
+{
+  "heuristics": [
+    {
+      "concept": "从当前节点出发，在未服务的客户中优先选择距离最近且加入后不超过车辆剩余容量的节点作为下一个配送点；若所有未服务节点都无法满足容量约束，则返回-1表示车辆需返回仓库补货。该算法通过贪心最近邻策略在局部最优与容量约束之间权衡，以快速构建可行路径。",
+      "feature": [
+        "最近邻",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    # 获取所有未服务节点的索引\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n    \n    # 计算每个未服务节点加入后新负载\n    new_loads = current_load + demand_list[unserved]\n    # 选出容量可行的节点\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n    \n    # 从可行节点中选距离当前节点最近的\n    distances = distance_matrix[current_node, feasible]\n    best_idx = np.argmin(distances)\n    return feasible[best_idx]",
+      "objective": -740.9978434849475
+    },
+    {
+      "concept": "以当前节点为起点，综合考虑下一节点的需求规模与距离，优先选择“单位距离服务需求量最大”的节点，即选择 (需求量 / 距离) 比值最大的可行节点；若所有未服务节点均无法满足容量约束，则返回-1表示返回仓库。该启发式通过需求密度导向，避免远距离小需求节点造成的低效绕行，与纯最近邻策略形成互补。",
+      "feature": [
+        "需求密度优先",
+        "容量约束检查"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n\n    distances = distance_matrix[current_node, feasible]\n    # 避免除以零，若距离为0（自身节点不可能出现，但为安全起见）则设极大比值\n    safe_distances = np.where(distances == 0, 1e-12, distances)\n    ratios = demand_list[feasible] / safe_distances\n    best_idx = np.argmax(ratios)\n    return feasible[best_idx]",
+      "objective": -535.4281151743899
+    },
+    {
+      "concept": "本启发式从拒绝与可行性双视角出发，首先列出所有未服务节点并检查容量可行性。对于容量可行的节点，计算若选择该节点后，车辆剩余容量对未来未被选择节点中最小需求量的支撑能力，即选择能使“剩余容量减去未来最小需求”的裕度最大化的节点，避免过早陷入不可行状态。对于所有容量不可行节点，计算其需求与车辆剩余容量的差距，并辅以距离惩罚，选择“因为容量不足而被放弃”的代价最小的节点，作为回程警告。综合两部分，优先选择可行节点中未来裕度最大者；若无可行节点，则返回-1。",
+      "feature": [
+        "剩余容量裕度最大化",
+        "拒绝代价最小化",
+        "前瞻性可行性校验"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible_mask = new_loads <= vehicle_capacity\n    feasible_nodes = unserved[feasible_mask]\n    infeasible_nodes = unserved[~feasible_mask]\n\n    # 如果没有可行节点，返回-1\n    if len(feasible_nodes) == 0:\n        return -1\n\n    # 对每个可行节点，计算选择它之后的剩余容量\n    remaining_after = vehicle_capacity - (current_load + demand_list[feasible_nodes])\n\n    # 若所有未服务节点都仅剩当前可行节点，直接按距离选\n    if len(unserved) == len(feasible_nodes):\n        distances = distance_matrix[current_node, feasible_nodes]\n        return feasible_nodes[np.argmin(distances)]\n\n    # 获取当前未选中的剩余节点（即排除当前候选后的所有未服务节点）\n    # 对于每个可行节点，考察选择它后剩余节点中最小需求，若剩余节点为空则设为0\n    future_min_demands = []\n    for node in feasible_nodes:\n        others = unserved[unserved != node]\n        if len(others) > 0:\n            future_min_demands.append(np.min(demand_list[others]))\n        else:\n            future_min_demands.append(0.0)\n    future_min_demands = np.array(future_min_demands)\n\n    # 裕度：剩余容量 - 未来最小需求，越大越好\n    margin = remaining_after - future_min_demands\n    # 同时考虑距离，归一化后加权（距离权重0.3，裕度权重0.7）\n    distances = distance_matrix[current_node, feasible_nodes]\n    max_dist = np.max(distances) if np.max(distances) > 0 else 1.0\n    norm_dist = distances / max_dist\n    # 裕度可能为负，归一化到[0,1]区间，通过min-max\n    min_margin = np.min(margin)\n    max_margin = np.max(margin)\n    if max_margin - min_margin > 0:\n        norm_margin = (margin - min_margin) / (max_margin - min_margin)\n    else:\n        norm_margin = np.zeros_like(margin)\n    # 综合得分：负距离（越小越好）和正裕度（越大越好），加权\n    score = -0.3 * norm_dist + 0.7 * norm_margin\n    best_idx = np.argmax(score)\n    return feasible_nodes[best_idx]",
+      "objective": -392.146660722426
+    },
+    {
+      "concept": "从当前节点出发，使用“状态转移潜力”评估每个容量可行的未服务节点。首先计算该节点与当前节点的距离，再计算该节点的需求与当前车辆剩余容量的比值（需求填充潜力），以及选择该节点后剩余容量与全局平均需求的比值（未来服务潜力）。同时，计算从当前节点经该节点到仓库的回程效率（即(d(current,node)+d(node,depot))/d(current,depot)的倒数）。最后将需求填充潜力、未来服务潜力和回程效率取几何平均作为综合评分，优先选择评分最高的节点。该策略通过多维度潜力的均衡组合，避免单一指标导致的局部最优陷阱。若无可行节点则返回-1。",
+      "feature": [
+        "需求填充潜力",
+        "未来服务潜力",
+        "回程效率",
+        "几何平均评分"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n\n    # 全局平均需求（仅计算未服务节点，避免被已服务节点干扰）\n    global_avg_demand = np.mean(demand_list[unserved])\n    remaining_cap = vehicle_capacity - current_load\n\n    best_score = -np.inf\n    best_node = -1\n\n    for node in feasible:\n        demand = demand_list[node]\n        # 1. 需求填充潜力：需求量 / 当前剩余容量（避免除零）\n        fill_potential = demand / (remaining_cap + 1e-12)\n\n        # 2. 未来服务潜力：选择该节点后的剩余容量 / 全局平均需求（若全局平均为0则取大值）\n        future_cap = remaining_cap - demand\n        future_potential = future_cap / (global_avg_demand + 1e-12)\n\n        # 3. 回程效率：1 / (d(current,node) + d(node,depot)) * d(current,depot)\n        d_current_node = distance_matrix[current_node, node]\n        d_node_depot = distance_matrix[node, 0]\n        d_current_depot = distance_matrix[current_node, 0]\n        # 防止除零\n        sum_dist = d_current_node + d_node_depot\n        if sum_dist == 0:\n            return_efficiency = 1e12\n        else:\n            return_efficiency = d_current_depot / sum_dist\n\n        # 综合评分：三个指标取几何平均（确保非负，加上小偏移防止负值导致无法开方）\n        # 对每个指标进行缩放使其量级接近（简单加1避免负值）\n        f = fill_potential + 1.0\n        fu = future_potential + 1.0\n        r = return_efficiency + 1.0\n        score = (f * fu * r) ** (1/3)\n\n        if score > best_score:\n            best_score = score\n            best_node = node\n\n    if best_node == -1:\n        return -1\n    return best_node",
+      "objective": -250.7776680631932
+    },
+    {
+      "concept": "该启发式从当前节点出发，不仅考虑下一个候选节点的距离和需求量，还通过“剩余容量利用率”和“绕行代价”进行综合评分。具体而言，对于每个容量可行的未服务节点，计算其需求量与当前车辆剩余容量的比值（需求填充率），同时计算从当前节点到该节点再到仓库的额外绕行距离相对直接返回仓库的比率。将两者加权结合，优先选择填充率高且绕行代价小的节点。该策略旨在平衡车辆装载效率与路径效率，避免过早满载或空载远行。若无可选节点则返回-1。",
+      "feature": [
+        "需求填充率",
+        "绕行代价",
+        "加权评分"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n\n    # 计算各候选节点的需求量\n    demands = demand_list[feasible]\n    # 计算剩余容量\n    remaining_cap = vehicle_capacity - current_load\n    # 需求填充率：需求量 / 剩余容量（避免除零，若剩余容量为0则取极大值）\n    fill_rate = np.where(remaining_cap > 0, demands / remaining_cap, 1e12)\n\n    # 计算绕行代价：从当前节点到候选节点再到仓库的距离，除以当前节点直连仓库的距离（避免除零）\n    direct_to_depot = distance_matrix[current_node, 0]\n    safe_direct = np.where(direct_to_depot == 0, 1e-12, direct_to_depot)\n    detour_dist = distance_matrix[current_node, feasible] + distance_matrix[feasible, 0]\n    detour_ratio = detour_dist / safe_direct\n\n    # 综合评分：填充率越高越好，绕行比率越低越好，使用加权求和（填充率权重0.6，绕行代价权重0.4）\n    # 对绕行代价取倒数以使越大越好方向一致\n    score = 0.6 * fill_rate + 0.4 * (1.0 / detour_ratio)\n    best_idx = np.argmax(score)\n    return feasible[best_idx]",
+      "objective": -80.01865379533578
+    },
+    {
+      "concept": "该启发式从当前节点出发，评估每个容量可行的未服务客户，计算该节点与当前节点的距离以及该节点与所有其他未服务客户的平均距离之和，作为“孤立代价”。同时，考虑该客户的需求量，计算“需求量/孤立代价”作为选择指标。优先选择该比值最大的节点。该策略倾向于选择距离当前节点既近、又靠近其他未服务客户集群、且需求量大的节点，从而在局部和全局结构之间取得平衡，避免绕远路到孤立节点。",
+      "feature": [
+        "孤立代价评估",
+        "集群导向",
+        "需求密度"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n\n    new_loads = current_load + demand_list[unserved]\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n\n    # 计算每个候选节点的孤立代价：到当前节点的距离 + 到所有其他未服务节点的平均距离\n    # 注意：这里用整个unserved集合（包括自身）计算平均距离，但候选节点自身距离为0不影响\n    # 更精确：对每个候选节点，求其到所有其他未服务节点（不含自身）的平均距离\n    other_unserved = unserved  # 包含所有未服务节点，但后续计算时可以排除自身\n    best_score = -1\n    best_node = -1\n\n    for node in feasible:\n        # 到当前节点的距离\n        dist_to_current = distance_matrix[current_node, node]\n\n        # 到其他未服务节点的平均距离（不包括自身）\n        mask = other_unserved != node\n        others = other_unserved[mask]\n        if len(others) > 0:\n            avg_dist_to_others = np.mean(distance_matrix[node, others])\n        else:\n            avg_dist_to_others = 0.0\n\n        isolation_cost = dist_to_current + avg_dist_to_others\n\n        # 防止除零\n        if isolation_cost == 0:\n            isolation_cost = 1e-12\n\n        # 评分：需求量 / 孤立代价\n        score = demand_list[node] / isolation_cost\n\n        if score > best_score:\n            best_score = score\n            best_node = node\n\n    if best_node == -1:\n        return -1\n    return best_node",
+      "objective": 152.78708250457998
+    },
+    {
+      "concept": "从当前节点出发，综合考虑多个互斥的决策属性：候选节点与当前节点的距离（局部效率）、候选节点与仓库的距离（回程效率）、候选节点的需求量（填充潜力）、以及候选节点与所有未服务节点的平均距离（全局集群性）。将这四个属性分别进行归一化处理，然后使用信息熵加权的方法动态调整各属性的权重，避免固定权重导致的偏见，最后选择综合评分最高的节点。若无可行节点则返回-1。",
+      "feature": [
+        "多属性归一化",
+        "信息熵加权",
+        "全局集群性",
+        "复合评分"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    unserved = np.where(remaining_demands)[0]\n    if len(unserved) == 0:\n        return -1\n    \n    new_loads = current_load + demand_list[unserved]\n    feasible = unserved[new_loads <= vehicle_capacity]\n    if len(feasible) == 0:\n        return -1\n    \n    # 计算四个属性\n    # 1. 到当前节点的距离（越小越好）\n    dist_to_current = distance_matrix[current_node, feasible]\n    # 2. 到仓库的距离（越小越好）\n    dist_to_depot = distance_matrix[feasible, 0]\n    # 3. 需求量（越大越好）\n    demands = demand_list[feasible]\n    # 4. 到所有未服务节点（含候选）的平均距离（越小越好，代表集群性）\n    avg_dist_to_all = np.array([np.mean(distance_matrix[node, unserved]) for node in feasible])\n    \n    # 归一化到[0,1]，越大越好，因此对越小越好的属性取倒数或者取负后归一化\n    def normalize_min_max(arr, reverse=False):\n        # reverse=True表示原始越小越好，归一化后越大越好\n        if reverse:\n            arr = -arr\n        min_val = np.min(arr)\n        max_val = np.max(arr)\n        if max_val - min_val == 0:\n            return np.ones_like(arr)\n        return (arr - min_val) / (max_val - min_val)\n    \n    # 对于越小越好的距离属性，使用reverse=True使其归一化后越大越好\n    # 需求量越大越好，不用reverse\n    norm_dtc = normalize_min_max(dist_to_current, reverse=True)\n    norm_dtd = normalize_min_max(dist_to_depot, reverse=True)\n    norm_dem = normalize_min_max(demands, reverse=False)\n    norm_avg = normalize_min_max(avg_dist_to_all, reverse=True)\n    \n    # 将所有属性值堆叠成矩阵 shape=(n,4)\n    attr_matrix = np.column_stack([norm_dtc, norm_dtd, norm_dem, norm_avg])\n    \n    # 计算每个属性的信息熵权重\n    # 熵值越小，权重越大\n    n_attr = attr_matrix.shape[1]\n    n_sample = attr_matrix.shape[0]\n    # 计算每个属性的熵\n    epsilon = 1e-12\n    p = attr_matrix / (np.sum(attr_matrix, axis=0, keepdims=True) + epsilon)  # 概率分布\n    entropy = -np.sum(p * np.log(p + epsilon), axis=0) / np.log(n_sample + epsilon)  # 熵值在[0,1]\n    # 权重：1 - 熵，并归一化\n    weights = (1 - entropy) / (np.sum(1 - entropy) + epsilon)\n    \n    # 加权求和得到综合评分\n    scores = np.dot(attr_matrix, weights)\n    best_idx = np.argmax(scores)\n    return feasible[best_idx]",
+      "objective": 429.66417932578867
+    }
+  ],
+  "memory": {
+    "positive_features": [],
+    "negative_features": []
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "heuristics": [
+    {
+      "concept": "该启发式称为“精简自适应张力平衡启发式”。核心思想是：在现有启发式的基础上，通过精简冗余项、统一归一化方法并引入动态平衡因子来提升效率与鲁棒性。具体做法是：将前瞻容量惩罚、路径流畅性度量、需求紧迫度收益三个核心指标进行归一化处理，消除量纲影响。引入一个自适应权重因子α，其值由剩余容量与剩余总需求的比值动态决定，用于平衡路径流畅性（容量充足时优先）与需求紧迫度（容量紧张时优先）。同时，将仓库引力惩罚作为独立项加入，仅在剩余容量无法覆盖剩余最大需求时生效，引导车辆及时返仓。通过这种精简与归一化，在保持决策质量的同时降低计算复杂度。",
+      "feature": [
+        "归一化指标",
+        "自适应平衡权重",
+        "前瞻容量约束",
+        "路径流畅性",
+        "需求紧迫度",
+        "仓库引力惩罚"
+      ],
+      "algorithm": "import numpy as np\n\ndef find_best_route(current_node, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list):\n    candidate_indices = np.where(remaining_demands)[0]\n    if len(candidate_indices) == 0:\n        return -1\n\n    best_next = -1\n    best_score = float('inf')\n    remaining_capacity = vehicle_capacity - current_load\n    total_remaining_demand = np.sum(demand_list[candidate_indices])\n    warehouse = 0\n\n    # 防止除零\n    if total_remaining_demand == 0:\n        capacity_ratio = 1.0\n    else:\n        capacity_ratio = remaining_capacity / total_remaining_demand\n    capacity_ratio = np.clip(capacity_ratio, 0, 1)\n    \n    # 自适应权重：容量充足时偏向路径流畅性，紧张时偏向需求紧迫度\n    alpha = capacity_ratio\n\n    # 预计算候选节点到仓库距离的最大值，用于归一化\n    depot_dists = distance_matrix[:, warehouse]\n    max_depot_dist = np.max(depot_dists[candidate_indices]) if len(candidate_indices) > 0 else 1.0\n\n    for candidate in candidate_indices:\n        demand = demand_list[candidate]\n        if demand > remaining_capacity:\n            continue\n\n        # 1. 前瞻容量惩罚（归一化）\n        future_cap = remaining_capacity - demand\n        other_indices = candidate_indices[candidate_indices != candidate]\n        max_other = np.max(demand_list[other_indices]) if len(other_indices) > 0 else 0\n        if future_cap < max_other:\n            penal = depot_dists[candidate] / max_depot_dist\n        else:\n            penal = 0.0\n\n        # 2. 路径流畅性度量（归一化到[0,1]区间，使用sigmoid型函数）\n        dist_to_candidate = distance_matrix[current_node, candidate]\n        dist_to_depot = depot_dists[candidate]\n        if dist_to_depot > 0:\n            direction_penalty = dist_to_candidate / dist_to_depot\n        else:\n            direction_penalty = 1.0\n        # 使用sigmoid函数将方向惩罚映射到(0,1)，避免极端值\n        direction_penalty = 1 / (1 + np.exp(-2 * (direction_penalty - 1)))\n\n        # 3. 需求紧迫度收益（归一化到[0,1]）\n        urgency = demand / (remaining_capacity + 1e-8)\n\n        # 4. 仓库引力惩罚（独立项）\n        gravity_penalty = depot_dists[candidate] / max_depot_dist if future_cap < max_other else 0.0\n\n        # 综合得分：alpha控制路径流畅性与需求紧迫度的平衡，惩罚项独立加入\n        score = (1 - alpha) * direction_penalty - alpha * urgency + penal + gravity_penalty\n\n        if score < best_score:\n            best_score = score\n            best_next = candidate\n\n    return best_next if best_next != -1 else -1",
+      "objective": -407.86160918376066
+    }
+  ],
+  "memory": {
+    "positive_features": [
+      [
+        "归一化指标",
+        "自适应平衡权重",
+        "前瞻容量约束",
+        "路径流畅性",
+        "需求紧迫度",
+        "仓库引力惩罚"
+      ]
+    ],
+    "negative_features": [
+      [
+        "贪婪距离优先",
+        "动态容量约束",
+        "回程可行性判断"
+      ],
+      [
+        "归一化指标",
+        "自适应平衡权重",
+        "前瞻容量约束",
+        "路径流畅性",
+        "需求紧迫度",
+        "仓库引力惩罚"
+      ]
+    ]
+  }
+}

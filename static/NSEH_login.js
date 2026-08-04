@@ -27,13 +27,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const password = document.getElementById('password').value.trim();
 
     if (!userId || !password) {
-      errorMsg.textContent = '请输入用户ID和密码';
+      errorMsg.textContent = T('login.needCredentials');
+      errorMsg.classList.remove('error-shake');
+      void errorMsg.offsetHeight;
+      errorMsg.classList.add('error-shake');
       return;
     }
 
     const btn = document.getElementById('login-btn');
     btn.disabled = true;
-    btn.textContent = '登录中...';
+    btn.textContent = T('login.loggingIn');
 
     fetch('/api/login', {
       method: 'POST',
@@ -45,13 +48,19 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.status === 'success') {
         window.location.href = '/';
       } else {
-        errorMsg.textContent = data.message || '登录失败，请重试';
+        errorMsg.textContent = data.message || T('login.failed');
+        errorMsg.classList.remove('error-shake');
+        void errorMsg.offsetHeight;
+        errorMsg.classList.add('error-shake');
       }
     })
-    .catch(() => { errorMsg.textContent = '网络错误，请稍后重试'; })
+    .catch(() => {
+      errorMsg.textContent = T('login.networkError');
+      errorMsg.classList.add('error-shake');
+    })
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = '登 录';
+      btn.textContent = T('login.loginBtn');
     });
   });
 
@@ -76,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (eyeOpen) eyeOpen.style.display = isPassword ? 'none' : '';
       if (eyeSlash) eyeSlash.style.display = isPassword ? '' : 'none';
 
-      btn.setAttribute('aria-label', isPassword ? '隐藏密码' : '显示密码');
+      btn.setAttribute('aria-label', isPassword ? T('login.hidePwd') : T('login.showPwd'));
     });
   });
 
@@ -87,17 +96,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const userName = document.getElementById('regUserName').value.trim();
 
     if (!userId || !password) {
-      regError.textContent = '用户ID和密码不能为空';
+      regError.textContent = T('login.needRegFields');
+      regError.classList.add('error-shake');
       return;
     }
     if (password.length < 6) {
-      regError.textContent = '密码至少6位';
+      regError.textContent = T('login.pwdTooShort');
+      regError.classList.add('error-shake');
       return;
     }
 
     const btn = document.getElementById('register-btn');
     btn.disabled = true;
-    btn.textContent = '注册中...';
+    btn.textContent = T('login.registering');
 
     fetch('/api/register', {
       method: 'POST',
@@ -109,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.status === 'success') {
         regError.textContent = '';
         regError.style.color = '#3fb950';
-        regError.textContent = '注册成功！即将跳转登录...';
+        regError.textContent = T('login.regSuccess');
         setTimeout(() => {
           document.getElementById('login-link').click();
           document.getElementById('userId').value = userId;
@@ -117,13 +128,13 @@ document.addEventListener('DOMContentLoaded', () => {
           document.getElementById('login-btn').click();
         }, 1200);
       } else {
-        regError.textContent = data.message || '注册失败';
+        regError.textContent = data.message || T('login.regFailed');
       }
     })
-    .catch(() => { regError.textContent = '网络错误，请稍后重试'; })
+    .catch(() => { regError.textContent = T('login.networkError'); })
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = '注 册';
+      btn.textContent = T('login.regBtn');
     });
   });
 
