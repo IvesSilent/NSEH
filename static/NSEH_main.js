@@ -391,7 +391,7 @@ function initLLMPresets() {
       if (cachedModel && [...sel.options].some(o => o.value === cachedModel)) {
         sel.value = cachedModel;
       } else {
-        sel.value = 'deepseek-chat';
+        sel.value = 'deepseek-v4-flash';
       }
       onLLMModelChange();
       // 标记预设已加载
@@ -400,8 +400,8 @@ function initLLMPresets() {
     .catch(() => {
       const sel = document.getElementById('llm_model_select');
       if (sel) {
-        sel.innerHTML = '<option value="deepseek-chat">DeepSeek V3' + T('t.offlineFallback') + '</option><option value="deepseek-reasoner">DeepSeek R1' + T('t.offlineFallback') + '</option>';
-        sel.value = 'deepseek-chat';
+        sel.innerHTML = '<option value="deepseek-v4-flash">DeepSeek V4 Flash' + T('t.offlineFallback') + '</option><option value="deepseek-v4-pro">DeepSeek V4 Pro' + T('t.offlineFallback') + '</option>';
+        sel.value = 'deepseek-v4-flash';
         onLLMModelChange();
         sel.dataset.loaded = '1';
       }

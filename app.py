@@ -151,89 +151,158 @@ def save_cached_config(config):
 load_cached_config()
 
 # ── LLM 预设模型库 ────────────────────────────────────────
+# 更新于 2026-08：同步各家最新旗舰/主力模型
 LLM_PRESETS = {
+    # ── DeepSeek V4（2026-08 官方最新）──
+    "deepseek-v4-flash": {
+        "name": "DeepSeek V4 Flash",
+        "base_url": "https://api.deepseek.com/v1",
+        "provider": "DeepSeek"
+    },
+    "deepseek-v4-pro": {
+        "name": "DeepSeek V4 Pro",
+        "base_url": "https://api.deepseek.com/v1",
+        "provider": "DeepSeek"
+    },
+    "deepseek-v4-flash-vision-exp": {
+        "name": "DeepSeek V4 Flash Vision (Exp)",
+        "base_url": "https://api.deepseek.com/v1",
+        "provider": "DeepSeek"
+    },
     "deepseek-chat": {
-        "name": "DeepSeek V3",
+        "name": "DeepSeek V3 (Legacy)",
         "base_url": "https://api.deepseek.com/v1",
         "provider": "DeepSeek"
     },
     "deepseek-reasoner": {
-        "name": "DeepSeek R1",
+        "name": "DeepSeek R1 (Legacy)",
         "base_url": "https://api.deepseek.com/v1",
         "provider": "DeepSeek"
     },
+    # ── OpenAI GPT-5.6 系列（2026-06 发布）──
+    "gpt-5.6-sol": {
+        "name": "GPT-5.6 Sol (Flagship)",
+        "name_en": "GPT-5.6 Sol (Flagship)",
+        "base_url": "https://api.openai.com/v1",
+        "provider": "OpenAI"
+    },
+    "gpt-5.6-terra": {
+        "name": "GPT-5.6 Terra",
+        "name_en": "GPT-5.6 Terra",
+        "base_url": "https://api.openai.com/v1",
+        "provider": "OpenAI"
+    },
+    "gpt-5.6-luna": {
+        "name": "GPT-5.6 Luna",
+        "name_en": "GPT-5.6 Luna",
+        "base_url": "https://api.openai.com/v1",
+        "provider": "OpenAI"
+    },
     "gpt-4o": {
-        "name": "GPT-4o",
+        "name": "GPT-4o (Legacy)",
         "base_url": "https://api.openai.com/v1",
         "provider": "OpenAI"
     },
     "gpt-4o-mini": {
-        "name": "GPT-4o Mini",
+        "name": "GPT-4o Mini (Legacy)",
         "base_url": "https://api.openai.com/v1",
         "provider": "OpenAI"
     },
-    "gpt-4-turbo": {
-        "name": "GPT-4 Turbo",
-        "base_url": "https://api.openai.com/v1",
-        "provider": "OpenAI"
-    },
-    "gpt-3.5-turbo": {
-        "name": "GPT-3.5 Turbo",
-        "base_url": "https://api.openai.com/v1",
-        "provider": "OpenAI"
-    },
-    "claude-sonnet-4-20250514": {
-        "name": "Claude Sonnet 4",
+    # ── Anthropic Claude 5 系列（2026-06 发布）──
+    "claude-fable-5": {
+        "name": "Claude Fable 5 (Flagship)",
         "base_url": "https://api.anthropic.com/v1",
         "provider": "Anthropic"
     },
-    "claude-3-5-sonnet-20241022": {
-        "name": "Claude 3.5 Sonnet",
+    "claude-opus-5": {
+        "name": "Claude Opus 5",
         "base_url": "https://api.anthropic.com/v1",
         "provider": "Anthropic"
     },
-    "claude-3-5-haiku-20241022": {
-        "name": "Claude 3.5 Haiku",
+    "claude-sonnet-5": {
+        "name": "Claude Sonnet 5",
         "base_url": "https://api.anthropic.com/v1",
         "provider": "Anthropic"
     },
-    "gemini-2.0-flash": {
-        "name": "Gemini 2.0 Flash",
+    "claude-haiku-4-5": {
+        "name": "Claude Haiku 4.5",
+        "base_url": "https://api.anthropic.com/v1",
+        "provider": "Anthropic"
+    },
+    # ── Google Gemini 3 系列（2026 最新）──
+    "gemini-3.7-flash": {
+        "name": "Gemini 3.7 Flash",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "provider": "Google"
     },
-    "gemini-1.5-pro": {
-        "name": "Gemini 1.5 Pro",
+    "gemini-3.6-flash": {
+        "name": "Gemini 3.6 Flash",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "provider": "Google"
     },
-    "qwen-turbo": {
-        "name": "Qwen Turbo",
+    "gemini-3.5-flash": {
+        "name": "Gemini 3.5 Flash",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "provider": "Google"
+    },
+    "gemini-2.5-pro": {
+        "name": "Gemini 2.5 Pro (Stable)",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "provider": "Google"
+    },
+    "gemini-2.5-flash": {
+        "name": "Gemini 2.5 Flash (Stable)",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "provider": "Google"
+    },
+    # ── 阿里 Qwen 3.8/3.7 系列（2026 最新）──
+    "qwen3.8-max": {
+        "name": "Qwen3.8 Max (旗舰)",
+        "name_en": "Qwen3.8 Max (Flagship)",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "provider": "Alibaba"
     },
-    "qwen-plus": {
-        "name": "Qwen Plus",
+    "qwen3.7-plus": {
+        "name": "Qwen3.7 Plus",
+        "name_en": "Qwen3.7 Plus",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "provider": "Alibaba"
     },
-    "qwen-max": {
-        "name": "Qwen Max",
+    "qwen3.7-flash": {
+        "name": "Qwen3.7 Flash",
+        "name_en": "Qwen3.7 Flash",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "provider": "Alibaba"
     },
-    "glm-4-plus": {
-        "name": "GLM-4 Plus",
+    # ── 智谱 GLM-5.x 系列（2026-08 最新）──
+    "glm-5.3": {
+        "name": "GLM-5.3 (旗舰)",
+        "name_en": "GLM-5.3 (Flagship)",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "provider": "Zhipu"
     },
-    "glm-4-flash": {
-        "name": "GLM-4 Flash",
+    "glm-5.2": {
+        "name": "GLM-5.2",
+        "name_en": "GLM-5.2",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "provider": "Zhipu"
     },
-    "moonshot-v1-8k": {
-        "name": "Moonshot v1 8K",
+    "glm-4.5-air": {
+        "name": "GLM-4.5 Air (轻量)",
+        "name_en": "GLM-4.5 Air (Light)",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "provider": "Zhipu"
+    },
+    # ── Moonshot Kimi K3 系列（2026-08 最新，V1 已下线）──
+    "kimi-k3": {
+        "name": "Kimi K3 (旗舰)",
+        "name_en": "Kimi K3 (Flagship)",
+        "base_url": "https://api.moonshot.cn/v1",
+        "provider": "Moonshot"
+    },
+    "kimi-k2.7-code": {
+        "name": "Kimi K2.7 Code (编程)",
+        "name_en": "Kimi K2.7 Code",
         "base_url": "https://api.moonshot.cn/v1",
         "provider": "Moonshot"
     },
@@ -255,7 +324,7 @@ default_config = {
     "num_reflection": 3,
     "api_key": "",
     "base_url": "https://api.deepseek.com/v1",
-    "llm_model": "deepseek-chat",
+    "llm_model": "deepseek-v4-flash",
     "problem": "TSP问题即，给定一组节点的坐标，您需要找到访问每个节点一次并返回起始点的最短路径。可以通过从当前节点开始逐步选择下一个节点来解决此任务。",
     "fun_name": "select_next_node",
     "fun_args": ["current_node", "destination_node", "unvisited_nodes", "distance_matrix"],
@@ -360,6 +429,81 @@ PROBLEM_CONFIG_MAP = {
         "problem_path": "problems/maxcut",
         "train_data": "train_data_maxcut.pkl",
         "train_solution": "train_solution_maxcut.pkl"
+    },
+    "binpacking": {
+        "name": "Bin Packing (一维装箱问题)",
+        "name_en": "Bin Packing (1D Bin Packing Problem)",
+        "problem": "一维装箱问题（Bin Packing）：给定一组物品，每个物品有大小，以及无限多个容量相同的箱子，目标是用最少的箱子装下所有物品。可以通过按顺序逐个决定每个物品放入哪个已开箱子来构建解；如果所有已开箱子都放不下，则返回-1表示开一个新箱子。",
+        "problem_en": "1D Bin Packing problem: given a set of items, each with a size, and an unlimited number of bins with the same capacity, the goal is to pack all items using the minimum number of bins. The solution is built by deciding one by one which opened bin each item goes into; return -1 to open a new bin if no opened bin can fit the item.",
+        "fun_name": "place_item",
+        "fun_args": ["item_size", "remaining_capacities", "item_sizes", "num_items"],
+        "fun_return": ["bin_index"],
+        "fun_notes": "'item_size'是当前要放置的物品大小（标量）。'remaining_capacities'是已开箱子的剩余容量数组。'item_sizes'是所有物品大小数组。'num_items'是物品总数。返回要放入的箱子索引（0-based），若所有已开箱子都放不下则返回-1表示开新箱。所有数据均为Numpy数组。",
+        "fun_notes_en": "'item_size' is the size of the current item (scalar). 'remaining_capacities' is the array of remaining capacities of opened bins. 'item_sizes' is the array of all item sizes. 'num_items' is the total number of items. Return the index of the bin to place the item into (0-based), or -1 to open a new bin if no opened bin can fit it. All data are numpy arrays.",
+        "ascend": True,
+        "problem_path": "problems/binpacking",
+        "train_data": "train_data_binpacking.pkl",
+        "train_solution": "train_solution_binpacking.pkl"
+    },
+    "graphcoloring": {
+        "name": "Graph Coloring (图着色问题)",
+        "name_en": "Graph Coloring (Graph Coloring Problem)",
+        "problem": "图着色问题（Graph Coloring）：给定一个无向图，需要为每个节点分配一种颜色，使得任意相邻（有边相连）的两个节点颜色不同，目标是最小化使用的颜色总数。可以通过按顺序逐个为节点选择颜色来构建解；如果已有颜色都与邻居冲突，可以启用一种新颜色。",
+        "problem_en": "Graph Coloring problem: given an undirected graph, assign a color to each node so that any two adjacent nodes (connected by an edge) have different colors, with the goal of minimizing the total number of colors used. The solution is built by choosing a color for each node one by one; a new color can be introduced if all existing colors conflict with the neighbors.",
+        "fun_name": "choose_color",
+        "fun_args": ["node_id", "adjacency_matrix", "current_colors", "num_colors_used"],
+        "fun_return": ["color"],
+        "fun_notes": "'node_id'是当前需要着色的节点索引。'adjacency_matrix'是无向图邻接矩阵（0/1）。'current_colors'是当前部分着色数组（-1=未着色，>=0=颜色编号）。'num_colors_used'是当前已使用的颜色种类数。返回该节点应使用的颜色编号（0到num_colors_used均可，num_colors_used表示开新颜色）。所有数据均为Numpy数组。",
+        "fun_notes_en": "'node_id' is the index of the node currently being colored. 'adjacency_matrix' is the 0/1 adjacency matrix of the undirected graph. 'current_colors' is the current partial coloring (-1 = uncolored, >=0 = color id). 'num_colors_used' is the number of colors already used. Return the color id for this node (0..num_colors_used, where num_colors_used means opening a new color). All data are numpy arrays.",
+        "ascend": True,
+        "problem_path": "problems/graphcoloring",
+        "train_data": "train_data_graphcoloring.pkl",
+        "train_solution": "train_solution_graphcoloring.pkl"
+    },
+    "jsp": {
+        "name": "JSP (作业车间调度问题)",
+        "name_en": "JSP (Job Shop Scheduling Problem)",
+        "problem": "作业车间调度问题（Job Shop Scheduling）：给定n个作业和m台机器，每个作业由一串工序组成，各工序需按指定顺序在指定机器上加工，目标是最小化所有作业完成的最大完工时间(makespan)。可以通过每次选择一个尚未完成的作业推进其下一道工序来构建调度。",
+        "problem_en": "Job Shop Scheduling problem: given n jobs and m machines, each job consists of a sequence of operations, each operation must be processed on a specified machine in a specified order, with the goal of minimizing the makespan (maximum completion time). The schedule is built by repeatedly selecting an unfinished job and advancing its next operation.",
+        "fun_name": "select_next_job",
+        "fun_args": ["available_operations", "job_progress", "operation_times", "machine_ready_times", "machine_of_op"],
+        "fun_return": ["next_job"],
+        "fun_notes": "'available_operations'是可推进下一工序的作业索引数组（未完成作业）。'job_progress'是每个作业已完成的工序数数组。'operation_times'是(n_jobs x n_machines)加工时间矩阵，第k列是该作业第k道工序的时间。'machine_ready_times'是每台机器的最早空闲时间。'machine_of_op'是(n_jobs x n_machines)机器顺序矩阵，第k列是该作业第k道工序使用的机器。返回要推进的作业索引。所有数据均为Numpy数组。",
+        "fun_notes_en": "'available_operations' is an array of job indices that can advance their next operation (unfinished jobs). 'job_progress' is an array of completed operation counts per job. 'operation_times' is an (n_jobs x n_machines) matrix where column k is the processing time of the k-th operation of each job. 'machine_ready_times' is the earliest available time of each machine. 'machine_of_op' is an (n_jobs x n_machines) matrix where column k is the machine used by the k-th operation of each job. Return the index of the job to advance. All data are numpy arrays.",
+        "ascend": True,
+        "problem_path": "problems/jsp",
+        "train_data": "train_data_jsp.pkl",
+        "train_solution": "train_solution_jsp.pkl"
+    },
+    "setcover": {
+        "name": "Set Cover (集合覆盖问题)",
+        "name_en": "Set Cover (Set Cover Problem)",
+        "problem": "集合覆盖问题（Set Cover）：给定一个包含所有元素的全集和若干集合，每个集合覆盖其中一部分元素并有一个选取成本，目标是用最小的总成本选出一些集合，使得所有元素都被至少一个所选集合覆盖。可以通过逐个选择集合来构建解，直到所有元素都被覆盖。",
+        "problem_en": "Set Cover problem: given a universe of elements and a number of sets, each covering a subset of elements with a selection cost, the goal is to select a collection of sets with minimum total cost such that every element is covered by at least one selected set. The solution is built by selecting sets one by one until all elements are covered.",
+        "fun_name": "select_next_set",
+        "fun_args": ["uncovered_elements", "set_membership", "set_costs"],
+        "fun_return": ["set_index"],
+        "fun_notes": "'uncovered_elements'是布尔数组，True表示该元素尚未被覆盖。'set_membership'是(n_sets x n_elements)的0/1矩阵，set_membership[s,e]=1表示集合s包含元素e。'set_costs'是每个集合的选取成本数组。返回下一个要选取的集合索引（0-based），若无法继续则返回None。所有数据均为Numpy数组。",
+        "fun_notes_en": "'uncovered_elements' is a boolean array, True means the element is not yet covered. 'set_membership' is an (n_sets x n_elements) 0/1 matrix, set_membership[s,e]=1 means set s contains element e. 'set_costs' is the selection cost array of each set. Return the index of the next set to select (0-based), or None if no set can be selected. All data are numpy arrays.",
+        "ascend": True,
+        "problem_path": "problems/setcover",
+        "train_data": "train_data_setcover.pkl",
+        "train_solution": "train_solution_setcover.pkl"
+    },
+    "vertexcover": {
+        "name": "Vertex Cover (最小顶点覆盖问题)",
+        "name_en": "Vertex Cover (Minimum Vertex Cover Problem)",
+        "problem": "最小顶点覆盖问题（Minimum Vertex Cover）：给定一个无向图，需要选出最少数量的节点，使得图中的每条边都至少有一个端点在所选节点集合中。可以通过逐个选择节点加入覆盖集合来构建解，直到所有边都被覆盖。",
+        "problem_en": "Minimum Vertex Cover problem: given an undirected graph, select the minimum number of nodes such that every edge has at least one endpoint in the selected set. The solution is built by adding nodes to the cover one by one until all edges are covered.",
+        "fun_name": "select_next_vertex",
+        "fun_args": ["uncovered_edges", "adjacency_matrix", "current_cover"],
+        "fun_return": ["vertex_index"],
+        "fun_notes": "'uncovered_edges'是布尔矩阵，uncovered_edges[i,j]=True表示边(i,j)尚未被覆盖。'adjacency_matrix'是无向图邻接矩阵（0/1）。'current_cover'是布尔数组表示当前已选入覆盖的节点。返回下一个要加入覆盖的节点索引（0-based），若无法继续则返回None。所有数据均为Numpy数组。",
+        "fun_notes_en": "'uncovered_edges' is a boolean matrix, uncovered_edges[i,j]=True means edge (i,j) is not yet covered. 'adjacency_matrix' is the 0/1 adjacency matrix of the undirected graph. 'current_cover' is a boolean array of nodes already in the cover. Return the index of the next vertex to add to the cover (0-based), or None if no vertex can be added. All data are numpy arrays.",
+        "ascend": True,
+        "problem_path": "problems/vertexcover",
+        "train_data": "train_data_vertexcover.pkl",
+        "train_solution": "train_solution_vertexcover.pkl"
     }
 }
 

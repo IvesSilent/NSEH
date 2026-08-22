@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     api_key = "sk-YOUR_API_KEY_XXXXXX"
     base_url = "https://api.deepseek.com/v1"
-    llm_model = "deepseek-chat"
+    llm_model = "deepseek-v4-flash"
     if_stream = False
     ascend = True
     population_capacity = 5

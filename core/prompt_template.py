@@ -197,11 +197,209 @@ def parse_tags(tag_string):
 
     # 回退: 按 + 分割
     parts = re.split(r'\s*\+\s*', tag_string)
-    return [p.strip() for p in parts if p.strip()]
+    if len(parts) > 1:
+        return [p.strip() for p in parts if p.strip()]
+
+    # 再回退: 按顿号/逗号分割（中英文标签行，如 "随机化、最近邻、扰动重启"）
+    parts = re.split(r'[、，,;；]', tag_string)
+    if len(parts) > 1:
+        return [p.strip() for p in parts if p.strip()]
+
+    return [tag_string.strip()] if tag_string.strip() else []
+
+
+# ════════════════════════════════════════════════════════
+#  特征提取自检与鲁棒回退
+#
+#  LLM 输出格式并不总是规范的 "{概念} {[标签1] + [标签2]}"，常见异常形态：
+#    1) 特征块花括号未闭合（如 "{ [A] + [B]" 缺右花括号）
+#    2) 特征块内嵌在概念块内（概念文字后直接跟 { [A] + [B] }）
+#    3) 标签未用方括号包裹，或使用 "特征：xxx" 标签行
+#    4) 标签与概念混排，或被代码块中的 [i] 索引干扰
+#
+#  本模块作为 get_heuristic 的自检环节：当标准解析得到的特征为空时，
+#  逐层尝试更鲁棒的提取（L1 花括号块 → L2 全文方括号 → L3 标签行
+#  → L4 概念短语模糊兜底），保证特征非空、可被记忆系统使用。
+# ════════════════════════════════════════════════════════
+
+_BRACKET_TAG_RE = re.compile(r'\[([^\[\]\n]+)\]')
+_BRACE_BLOCK_RE = re.compile(r'\{([^{}]*)\}', re.DOTALL)
+_CODE_FENCE_RE = re.compile(r'```[a-zA-Z]*\s*(.*?)```', re.DOTALL)
+_FEATURE_LABEL_RE = re.compile(
+    r'(?:特征|策略标签|标签|features?|strategy\s*tags?|tags?)\s*[:：]\s*([^\n]+)',
+    re.IGNORECASE)
+
+# 模糊兜底时的过滤词（避免把连接词/套话当特征）
+_FEATURE_STOPWORDS = {
+    '该启发式', '基于', '通过', '对于', '一个', '一种', '以及', '同时', '因此',
+    '其中', '从而', '实现', '得到', '进行', '采用', '不同于', '现有', '设计',
+    '并且', '或者', '考虑', '使得', '可以', '需要', '希望', '能够', '具有',
+    'the', 'this', 'that', 'with', 'based', 'using', 'from', 'into', 'such',
+    'than', 'more', 'and', 'for', 'are', 'was', 'were', 'will', 'have', 'has'
+}
+
+# 动词/介词开头的句子片段前缀（L4 兜底时排除，避免把整句当特征）
+_FEATURE_VERB_PREFIXES = (
+    '基于', '通过', '采用', '利用', '借助', '结合', '针对', '对于', '为了',
+    '使得', '能够', '可以', '需要', '优先', '避免', '引入', '构建', '计算',
+    '比较', '选择', '评估', '衡量', '考虑', '从', '在', '将', '把', '以',
+    '该方法', '本启发式', '该启发式', '此方法', '这种', '这种策略'
+)
+
+
+def _strip_code_fences(text):
+    """移除代码块，避免代码中的 [i] 索引、列表等干扰特征提取"""
+    return _CODE_FENCE_RE.sub('', text)
+
+
+def _extract_bracket_tags(text):
+    """提取文本中所有 [标签] 形式的内容（不依赖花括号闭合），去重保序"""
+    tags = [t.strip() for t in _BRACKET_TAG_RE.findall(text) if t.strip()]
+    seen, out = set(), []
+    for t in tags:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def _find_feature_block(text):
+    """
+    查找特征标签块：优先匹配含 [x] 的闭合花括号块（取最后一个，
+    特征块一般在概念之后）；其次匹配未闭合块（{ [A] + [B] 到行尾/代码围栏）。
+    返回块内容字符串；找不到返回 None。
+    """
+    # 1) 闭合块
+    blocks = _BRACE_BLOCK_RE.findall(text)
+    for b in reversed(blocks):
+        if _BRACKET_TAG_RE.search(b):
+            return b.strip()
+    # 2) 未闭合块：{ [A] + [B] 后跟行尾 / 代码围栏 / 普通文字（只要花括号内是纯标签序列）
+    m = re.search(r'\{\s*((?:\[[^\[\]\n]+\]\s*\+\s*)*\[[^\[\]\n]+\]\s*(?:\+\s*\[[^\[\]\n]+\]\s*)*)\s*(?=\n|$|```|[^\[\s])', text)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _extract_feature_label_line(text):
+    """从 '特征：xxx' / 'tags: xxx' 形式的标签行提取特征"""
+    m = _FEATURE_LABEL_RE.search(text)
+    if m:
+        return parse_tags(m.group(1).strip())
+    return []
+
+
+def _fallback_phrase_features(text, max_n=5):
+    """
+    模糊兜底：从文本中抽取候选术语。
+    保守策略：优先引号（“”""「」『』）包裹的术语；
+    其次按标点切分出的 2~12 字、不含代码符号的名词短语。
+    """
+    if not text:
+        return []
+    candidates = []
+    # 引号包裹的术语（“xx” "xx" 「xx」 『xx』）优先且必定保留
+    quoted = re.findall(r'[“"「『]([^”"」』]{2,20})[”"」』]', text)
+    candidates += quoted
+    for seg in re.split(r'[，,。；;、\s]+', text):
+        seg = seg.strip().strip('{}[]')
+        # 引号术语已收录，跳过重复
+        if seg in quoted:
+            continue
+        if 2 <= len(seg) <= 12 and not re.search(r'[\d_=<>+\-*/()]', seg):
+            if seg in _FEATURE_STOPWORDS:
+                continue
+            # 排除动词/介词开头、明显是整句的片段
+            if seg.startswith(_FEATURE_VERB_PREFIXES):
+                continue
+            candidates.append(seg)
+    seen, out = set(), []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+        if len(out) >= max_n:
+            break
+    return out
+
+
+def extract_features_robust(heuristic_string, concept=""):
+    """
+    鲁棒特征提取（自检回退），按鲁棒性从强到弱逐层尝试。
+    返回 (features, method)；method 为 None 表示未命中任何回退。
+    """
+    text_no_code = _strip_code_fences(heuristic_string)
+
+    # L1: 花括号特征块（闭合或未闭合）
+    block = _find_feature_block(text_no_code)
+    if block:
+        tags = parse_tags(block)
+        if tags:
+            return tags, 'L1_brace_block'
+
+    # L2: 全文方括号标签（已剔除代码块干扰）
+    tags = _extract_bracket_tags(text_no_code)
+    if tags:
+        return tags, 'L2_any_brackets'
+
+    # L3: "特征：xxx" 标签行
+    tags = _extract_feature_label_line(text_no_code)
+    if tags:
+        return tags, 'L3_label_line'
+
+    # L4: 概念文本短语模糊兜底
+    tags = _fallback_phrase_features(concept or text_no_code)
+    if tags:
+        return tags, 'L4_phrase_fallback'
+
+    return [], None
+
+
+def _clean_concept(concept):
+    """
+    清洗概念文本：剥离混入其中的特征块残留。
+    例如 "……结构辨识度。 { [完工时间梯度场] + [机器松弛度向量] }"
+    → "……结构辨识度。"
+    """
+    if not concept:
+        return concept
+    # 1) 剥离闭合的特征块 {...}
+    concept = _BRACE_BLOCK_RE.sub('', concept)
+    # 2) 剥离未闭合的特征块 { [A] + [B]（到结尾）
+    concept = re.sub(r'\{\s*(?:\[[^\[\]\n]+\]\s*\+\s*)*\[[^\[\]\n]+\]\s*\}?\s*$', '', concept)
+    # 3) 剥离单独成段的标签行（[A] + [B] 且无其他文字）
+    concept = re.sub(r'^\s*(?:\[[^\[\]\n]+\]\s*\+\s*)*\[[^\[\]\n]+\]\s*$', '', concept)
+    # 4) 清理尾部符号
+    concept = concept.strip().rstrip('，,。;；:：-—')
+    return concept
+
+
+def _recover_concept(heuristic_string):
+    """
+    当标准解析拿不到概念块时，从启发式文本中恢复概念：
+    依次剥离代码块、闭合花括号块、未闭合特征块、标签行、纯标签段，
+    剩余文本即概念描述。
+    """
+    text = _strip_code_fences(heuristic_string)
+    if not text.strip():
+        return ""
+    # 剥离闭合花括号块
+    text = _BRACE_BLOCK_RE.sub('', text)
+    # 剥离未闭合特征块 { [A] + [B]（可能到结尾）
+    text = re.sub(r'\{\s*(?:\[[^\[\]\n]+\]\s*\+\s*)*\[[^\[\]\n]+\]\s*\}?', '', text)
+    # 剥离标签行（特征：xxx / tags: xxx）
+    text = _FEATURE_LABEL_RE.sub('', text)
+    # 剥离纯标签段（[A] + [B] 形式）
+    text = re.sub(r'(?:\[[^\[\]\n]+\]\s*\+\s*)*\[[^\[\]\n]+\]', '', text)
+    # 清理残留花括号与空白
+    text = re.sub(r'[{}]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = text.strip().rstrip('，,。;；:：-—')
+    return text
 
 
 def get_heuristic(heuristic_string):
-    """从 LLM 回复中提取启发式字典"""
+    """从 LLM 回复中提取启发式字典（含特征自检与鲁棒回退）"""
     bracket_contents = re.findall(r'\{(.*?)\}', heuristic_string, re.DOTALL)
     code_block = re.search(r'```python(.*?)```', heuristic_string, re.DOTALL)
     algorithm = code_block.group(1).strip() if code_block else ""
@@ -213,6 +411,27 @@ def get_heuristic(heuristic_string):
     tags = parse_tags(raw_tags)
     if not tags:
         tags = [raw_tags] if raw_tags else []
+
+    # ── 自检环节：特征为空 → 逐层鲁棒提取 ──
+    recovered_method = None
+    if not tags:
+        tags, recovered_method = extract_features_robust(heuristic_string, concept)
+        if recovered_method:
+            snippet = heuristic_string[:80].replace('\n', ' ')
+            print(f"[自检] 标准解析特征为空，已通过 {recovered_method} 恢复 {len(tags)} 个特征: {tags}")
+            print(f"[自检] 原文片段: {snippet}...")
+        else:
+            print(f"[自检] 标准解析特征为空，且所有鲁棒回退均未命中（原文 {len(heuristic_string)} 字符）")
+
+    # 概念清洗：剥离混入概念文本的特征块残留；若标准解析拿不到概念则从文本恢复
+    concept = _clean_concept(concept)
+    if not concept and heuristic_string.strip():
+        concept = _recover_concept(heuristic_string)
+
+    if not tags:
+        # 极端兜底：确保 feature 非空（下游记忆/分类依赖非空列表）
+        tags = ['未分类']
+        print(f"[自检] 所有提取方式均失败，使用兜底标签: {tags}")
 
     heuristic = {
         'concept': concept,
@@ -236,7 +455,7 @@ if __name__ == "__main__":
 
     api_key = "sk-YOU…XXXX"
     base_url = "https://api.deepseek.com/v1"
-    llm_model = "deepseek-chat"
+    llm_model = "deepseek-v4-flash"
     if_stream = False
     message_list = []
 

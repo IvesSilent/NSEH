@@ -221,7 +221,7 @@ CLI parameters are configured directly in `start_evo.py`:
 | Parameter | Type | Description | Default |
 |:----|:----|:-----|:------|
 | `base_url` | `str` | LLM API endpoint | `https://api.deepseek.com/v1` |
-| `llm_model` | `str` | Model name | `deepseek-chat` |
+| `llm_model` | `str` | Model name | `deepseek-v4-flash` |
 | `api_key` | `str` | Your API Key | required |
 | `problem` | `str` | Problem scenario description | TSP problem, i.e. ... |
 | `fun_name` | `str` | Target function name | `select_next_node` |

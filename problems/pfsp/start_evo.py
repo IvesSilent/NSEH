@@ -17,7 +17,7 @@ TRAIN_SOLUTION = "train_solution_pfsp.pkl"
 
 API_KEY = "sk-YOUR_API_KEY_XXXXXX"
 BASE_URL = "https://api.deepseek.com/v1"
-LLM_MODEL = "deepseek-chat"
+LLM_MODEL = "deepseek-v4-flash"
 
 POPULATION_CAPACITY = 7
 NUM_GENERATIONS = 5

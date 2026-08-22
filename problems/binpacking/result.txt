@@ -1,0 +1,3 @@
+BinPacking50x100: Objective = 0.40, time = 0.0004s
+BinPacking100x150: Objective = 0.70, time = 0.0008s
+BinPacking200x200: Objective = 1.30, time = 0.0022s

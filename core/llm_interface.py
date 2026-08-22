@@ -61,8 +61,8 @@ if __name__ == "__main__":
     # api_key = "YOUR_api_key" # 替换为你的api_key
     api_key = "sk-YOUR_API_KEY_XXXXXX"  # 替换为你的api_key
     base_url = "https://api.deepseek.com/v1"
-    # llm_model = "deepseek-chat"
-    llm_model = "deepseek-chat"
+    # llm_model = "deepseek-v4-flash"
+    llm_model = "deepseek-v4-flash"
     if_stream = False
 
     # message_list = [{"role": "user", "content": "你好，请自我介绍一下。"}]

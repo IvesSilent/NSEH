@@ -18,7 +18,7 @@ TRAIN_SOLUTION = "train_data_solution.pkl"
 # LLM配置
 API_KEY = "sk-YOUR_API_KEY_XXXXXX"
 BASE_URL = "https://api.deepseek.com/v1"
-LLM_MODEL = "deepseek-chat"
+LLM_MODEL = "deepseek-v4-flash"
 
 # 进化参数
 POPULATION_CAPACITY = 7
