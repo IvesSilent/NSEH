@@ -1,0 +1,3 @@
+VRPTW50: Objective = 0.00, time = 0.0018s
+VRPTW100: Objective = 0.00, time = 0.0086s
+VRPTW200: Objective = 0.00, time = 0.0242s

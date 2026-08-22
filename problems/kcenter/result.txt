@@ -1,0 +1,3 @@
+kCenter50x5: Objective = 11.91, time = 0.0004s
+kCenter100x10: Objective = 6.31, time = 0.0017s
+kCenter200x10: Objective = 7.61, time = 0.0034s

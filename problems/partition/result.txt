@@ -1,0 +1,3 @@
+Partition50: Objective = 2.20, time = 0.0000s
+Partition100: Objective = 0.80, time = 0.0000s
+Partition200: Objective = 0.80, time = 0.0001s

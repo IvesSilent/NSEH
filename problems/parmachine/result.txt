@@ -1,0 +1,3 @@
+ParMachine50x4: Objective = 1.70, time = 0.0001s
+ParMachine100x8: Objective = 0.50, time = 0.0002s
+ParMachine200x8: Objective = 0.40, time = 0.0003s

@@ -1,0 +1,3 @@
+Orienteering50: Objective = 188.10, time = 0.0005s
+Orienteering100: Objective = 317.30, time = 0.0021s
+Orienteering200: Objective = 234.20, time = 0.0075s
