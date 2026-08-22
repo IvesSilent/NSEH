@@ -169,7 +169,22 @@ CLI parameters are configured directly in `start_evo.py`:
 │   ├── cvrp/                      # CVRP Capacitated Vehicle Routing Problem
 │   ├── knapsack/                  # 0/1 Knapsack Problem
 │   ├── pfsp/                      # PFSP Permutation Flow Shop Scheduling
-│   └── maxcut/                    # MaxCut Maximum Cut Problem
+│   ├── maxcut/                    # MaxCut Maximum Cut Problem
+│   ├── binpacking/                # Bin Packing Problem
+│   ├── graphcoloring/             # Graph Coloring Problem
+│   ├── jsp/                       # Job Shop Scheduling Problem
+│   ├── setcover/                  # Set Cover Problem
+│   ├── vertexcover/               # Minimum Vertex Cover Problem
+│   ├── mtsp/                      # Multiple Travelling Salesman Problem
+│   ├── vrptw/                     # VRPTW (Vehicle Routing with Time Windows)
+│   ├── orienteering/              # Orienteering Problem
+│   ├── steinertree/               # Steiner Tree Problem
+│   ├── maxclique/                 # Maximum Clique Problem
+│   ├── smtwt/                     # Single Machine Total Weighted Tardiness
+│   ├── parmachine/                # Parallel Machine Scheduling (P||Cmax)
+│   ├── qap/                       # Quadratic Assignment Problem
+│   ├── kcenter/                   # k-Center Problem
+│   └── partition/                 # Number Partitioning Problem
 ├── static/                        # Web frontend
 │   ├── i18n.js                    # Chinese/English i18n framework (v5.1)
 │   ├── NSEH_login.css             # Login page styles
@@ -333,7 +348,11 @@ Do not implement any code. Only give the improvement goals and describe how to d
 
 ## 📖 Supported Problems
 
-The project currently supports **5 combinatorial optimization problem scenarios**, all switchable via the "Problem Selection" dropdown on the Web UI.
+The project currently supports **20 combinatorial optimization problem scenarios**, all switchable via the "Problem Selection" dropdown on the Web UI.
+
+<details>
+<summary><b>📋 Click to expand — detailed description of all 20 problem scenarios</b> (datasets / function signatures / reference solutions)</summary>
+
 
 ### 🛤️ TSP (Travelling Salesman Problem)
 
@@ -409,6 +428,221 @@ The project currently supports **5 combinatorial optimization problem scenarios*
 - **Feature**: return 0 or 1 (which side to assign), deciding one node at a time
 
 ---
+
+
+### 📦 Bin Packing (1D Bin Packing Problem)
+
+> **Goal**: Pack items with given sizes into the minimum number of equal-capacity bins.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/binpacking/datasets/` | 64 instances, 100 items, bin capacity 100 |
+| **Test** | `problems/binpacking/datasets/` | 10 instances each for 50×100 / 100×150 / 200×200 |
+
+- **Signature**: `place_item(item_size, remaining_capacities, item_sizes, num_items) → bin_index`
+- **Reference solutions**: Best-Fit Decreasing (BFD)
+- **Feature**: return -1 to open a new bin when no opened bin fits
+
+---
+
+### 🎨 Graph Coloring (Graph Coloring Problem)
+
+> **Goal**: Color graph nodes so adjacent nodes differ, minimizing the number of colors.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/graphcoloring/datasets/` | 64 instances, 60 nodes, edge density 0.5 |
+| **Test** | `problems/graphcoloring/datasets/` | 10 instances each for 30 / 60 / 100 nodes |
+
+- **Signature**: `choose_color(node_id, adjacency_matrix, current_colors, num_colors_used) → color`
+- **Reference solutions**: DSATUR greedy coloring
+
+---
+
+### 🏭 JSP (Job Shop Scheduling Problem)
+
+> **Goal**: Schedule jobs with operation-machine sequences to minimize the makespan.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/jsp/datasets/` | 64 instances, 10 jobs × 5 machines |
+| **Test** | `problems/jsp/datasets/` | 10 instances each for 10×5 / 20×10 / 30×15 |
+
+- **Signature**: `select_next_job(available_operations, job_progress, operation_times, machine_ready_times, machine_of_op) → next_job`
+- **Reference solutions**: multi-rule greedy (SPT/MWKR/LPT) + random restarts
+
+---
+
+### 🗂️ Set Cover (Set Cover Problem)
+
+> **Goal**: Select minimum-cost sets covering all elements of the universe.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/setcover/datasets/` | 64 instances, 100 elements, 50 sets |
+| **Test** | `problems/setcover/datasets/` | 10 instances each for 100×50 / 200×100 / 300×150 |
+
+- **Signature**: `select_next_set(uncovered_elements, set_membership, set_costs) → set_index`
+- **Reference solutions**: randomized greedy + redundant-set elimination
+
+---
+
+### 🛡️ Vertex Cover (Minimum Vertex Cover Problem)
+
+> **Goal**: Select the minimum number of vertices so every edge has an endpoint in the cover.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/vertexcover/datasets/` | 64 instances, 60 nodes, edge density 0.3 |
+| **Test** | `problems/vertexcover/datasets/` | 10 instances each for 40 / 80 / 120 nodes |
+
+- **Signature**: `select_next_vertex(uncovered_edges, adjacency_matrix, current_cover) → vertex_index`
+- **Reference solutions**: multi-start greedy + redundant-vertex elimination
+
+---
+
+### 🧑‍🤝‍🧑 mTSP (Multiple Travelling Salesman Problem)
+
+> **Goal**: Plan multiple depot-returning tours covering all customers, minimizing total distance.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/mtsp/datasets/` | 64 instances, 100 nodes, 3 salesmen |
+| **Test** | `problems/mtsp/datasets/` | 10 instances each for 50×3 / 100×4 / 200×5 |
+
+- **Signature**: `select_next_node(current_node, unvisited_nodes, distance_matrix, remaining_salesmen) → next_node`
+- **Reference solutions**: multi-start nearest neighbor
+
+---
+
+### ⏰ VRPTW (Vehicle Routing Problem with Time Windows)
+
+> **Goal**: Serve all customers within time windows and capacity, minimizing total distance.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/vrptw/datasets/` | 64 instances, 50 customers |
+| **Test** | `problems/vrptw/datasets/` | 10 instances each for 50 / 100 / 200 customers |
+
+- **Signature**: `select_next_customer(current_node, current_time, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list, time_windows, service_times) → next_node`
+- **Reference solutions**: multi-strategy greedy (EDD/distance/slack) + random restarts
+- **Feature**: return -1 to return to the depot when no customer is feasible
+
+---
+
+### 🧭 Orienteering (Orienteering Problem)
+
+> **Goal**: Collect maximum profit within a distance budget on a route from and back to the start.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/orienteering/datasets/` | 64 instances, 100 nodes |
+| **Test** | `problems/orienteering/datasets/` | 10 instances each for 50 / 100 / 200 nodes |
+
+- **Signature**: `select_next_node(current_node, visited, remaining_profits, distance_matrix, budget_left, total_profit) → next_node`
+- **Reference solutions**: greedy + local search (insert / remove-insert)
+
+---
+
+### 🌲 Steiner Tree (Steiner Tree Problem)
+
+> **Goal**: Connect all terminal nodes with minimum total edge weight (Steiner points allowed).
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/steinertree/datasets/` | 64 instances, 80 nodes, 12 terminals |
+| **Test** | `problems/steinertree/datasets/` | 10 instances each for 50×8 / 100×15 / 200×20 |
+
+- **Signature**: `select_next_terminal(current_tree, unconnected_terminals, adjacency_matrix, distances) → terminal_index`
+- **Reference solutions**: KMB algorithm (terminal MST + shortest-path expansion)
+
+---
+
+### 🔷 MaxClique (Maximum Clique Problem)
+
+> **Goal**: Find the largest set of pairwise-adjacent vertices in an undirected graph.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/maxclique/datasets/` | 64 instances, 60 nodes, density 0.5 |
+| **Test** | `problems/maxclique/datasets/` | 10 instances each for 30 / 60 / 100 nodes |
+
+- **Signature**: `select_next_vertex(current_clique, candidate_vertices, adjacency_matrix) → vertex_index`
+- **Reference solutions**: multi-start greedy (degree priority)
+
+---
+
+### ⚖️ SMTWT (Single Machine Total Weighted Tardiness)
+
+> **Goal**: Minimize the total weighted tardiness ΣwT on a single machine.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/smtwt/datasets/` | 64 instances, 50 jobs |
+| **Test** | `problems/smtwt/datasets/` | 10 instances each for 50 / 100 / 200 jobs |
+
+- **Signature**: `select_next_job(unscheduled_jobs, current_time, processing_times, due_dates, weights) → next_job`
+- **Reference solutions**: WSPT/EDD/MS greedy + adjacent-swap local search
+
+---
+
+### 🖥️ ParMachine (Parallel Machine Scheduling P||Cmax)
+
+> **Goal**: Assign jobs to identical parallel machines minimizing the makespan.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/parmachine/datasets/` | 64 instances, 100 jobs, 4 machines |
+| **Test** | `problems/parmachine/datasets/` | 10 instances each for 50×4 / 100×8 / 200×8 |
+
+- **Signature**: `assign_job(job_id, machine_loads, processing_times, num_machines) → machine_index`
+- **Reference solutions**: LPT + local search (moves & swaps)
+
+---
+
+### 🔀 QAP (Quadratic Assignment Problem)
+
+> **Goal**: Assign facilities to locations minimizing total flow × distance.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/qap/datasets/` | 64 instances, 12 facilities |
+| **Test** | `problems/qap/datasets/` | 10 instances each for 8 / 12 / 16 facilities |
+
+- **Signature**: `assign_facility(facility_id, available_positions, flow_matrix, distance_matrix, current_assignment) → position_index`
+- **Reference solutions**: greedy + pairwise-swap local search
+
+---
+
+### 🎯 k-Center (k-Center Problem)
+
+> **Goal**: Select k centers minimizing the maximum distance from any node to its nearest center.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/kcenter/datasets/` | 64 instances, 100 nodes, k=8 |
+| **Test** | `problems/kcenter/datasets/` | 10 instances each for 50×5 / 100×10 / 200×10 |
+
+- **Signature**: `select_next_center(selected_centers, candidate_nodes, distance_matrix, k) → center_index`
+- **Reference solutions**: farthest-first greedy + center-swap local search
+
+---
+
+### ➗ Partition (Number Partitioning Problem)
+
+> **Goal**: Partition numbers into two groups minimizing the sum difference.
+
+| Dataset | Location | Description |
+|:------|:-----|:----|
+| **Training** | `problems/partition/datasets/` | 64 instances, 100 numbers |
+| **Test** | `problems/partition/datasets/` | 10 instances each for 50 / 100 / 200 numbers |
+
+- **Signature**: `assign_number(number_id, sum_a, sum_b, numbers) → group (0/1)`
+- **Reference solutions**: greedy + move/swap local search
+
+---
+
+</details>
 
 ### 🧩 How to Add a Custom Problem Scenario
 

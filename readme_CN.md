@@ -169,7 +169,22 @@ CLI 参数在 `start_evo.py` 中直接配置：
 │   ├── cvrp/                      # CVRP 容量受限车辆路径问题
 │   ├── knapsack/                  # 0/1 背包问题
 │   ├── pfsp/                      # PFSP 置换流水车间调度
-│   └── maxcut/                    # MaxCut 最大割问题
+│   ├── maxcut/                    # MaxCut 最大割问题
+│   ├── binpacking/                # 一维装箱问题
+│   ├── graphcoloring/             # 图着色问题
+│   ├── jsp/                       # 作业车间调度问题
+│   ├── setcover/                  # 集合覆盖问题
+│   ├── vertexcover/               # 最小顶点覆盖问题
+│   ├── mtsp/                      # 多旅行商问题
+│   ├── vrptw/                     # 带时间窗车辆路径问题
+│   ├── orienteering/              # 定向越野问题
+│   ├── steinertree/               # 斯坦纳树问题
+│   ├── maxclique/                 # 最大团问题
+│   ├── smtwt/                     # 单机加权延误调度问题
+│   ├── parmachine/                # 并行机调度问题
+│   ├── qap/                       # 二次分配问题
+│   ├── kcenter/                   # k 中心问题
+│   └── partition/                 # 数划分问题
 ├── static/                        # Web 前端
 │   ├── i18n.js                    # 中英双语切换框架（v5.1）
 │   ├── NSEH_login.css             # 登录页样式
@@ -335,7 +350,11 @@ distance_matrix是节点的距离矩阵。所有数据均为Numpy数组。
 
 ## 📖 支持的问题情景
 
-本项目目前支持以下 **5 种组合优化问题情景**，均可通过 Web 端「问题选择」下拉框切换。
+本项目目前支持以下 **20 种组合优化问题情景**，均可通过 Web 端「问题选择」下拉框切换。
+
+<details>
+<summary><b>📋 点击展开 — 全部 20 个问题情景的详细说明</b>（数据集 / 函数签名 / 标准解）</summary>
+
 
 ### 🛤️ TSP（旅行商问题）
 
@@ -411,6 +430,221 @@ distance_matrix是节点的距离矩阵。所有数据均为Numpy数组。
 - **特点**：返回 0 或 1（划分到哪一侧），每次决策一个节点
 
 ---
+
+
+### 📦 Bin Packing（一维装箱问题）
+
+> **目标**：把给定大小的物品装进容量相同、数量不限的箱子，使所用箱子数最少。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/binpacking/datasets/` | 64 个实例，100 物品，容量 100 |
+| **测试集** | `problems/binpacking/datasets/` | 各 10 个实例：50×100 / 100×150 / 200×200 |
+
+- **函数签名**：`place_item(item_size, remaining_capacities, item_sizes, num_items) → bin_index`
+- **标准解**：Best-Fit Decreasing（BFD）
+- **特点**：所有已开箱子都放不下时返回 -1 表示开新箱
+
+---
+
+### 🎨 Graph Coloring（图着色问题）
+
+> **目标**：为图中每个节点着色，使相邻节点颜色不同，使用的颜色数最少。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/graphcoloring/datasets/` | 64 个实例，60 节点，边密度 0.5 |
+| **测试集** | `problems/graphcoloring/datasets/` | 各 10 个实例：30 / 60 / 100 节点 |
+
+- **函数签名**：`choose_color(node_id, adjacency_matrix, current_colors, num_colors_used) → color`
+- **标准解**：DSATUR 贪心着色
+
+---
+
+### 🏭 JSP（作业车间调度问题）
+
+> **目标**：安排各作业按指定机器顺序加工，最小化最大完工时间（makespan）。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/jsp/datasets/` | 64 个实例，10 作业 × 5 机器 |
+| **测试集** | `problems/jsp/datasets/` | 各 10 个实例：10×5 / 20×10 / 30×15 |
+
+- **函数签名**：`select_next_job(available_operations, job_progress, operation_times, machine_ready_times, machine_of_op) → next_job`
+- **标准解**：多规则贪心（SPT/MWKR/LPT）+ 随机重启
+
+---
+
+### 🗂️ Set Cover（集合覆盖问题）
+
+> **目标**：选出总成本最小的若干集合，使全集元素都被至少一个所选集合覆盖。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/setcover/datasets/` | 64 个实例，100 元素，50 集合 |
+| **测试集** | `problems/setcover/datasets/` | 各 10 个实例：100×50 / 200×100 / 300×150 |
+
+- **函数签名**：`select_next_set(uncovered_elements, set_membership, set_costs) → set_index`
+- **标准解**：随机化贪心 + 冗余集合消除
+
+---
+
+### 🛡️ Vertex Cover（最小顶点覆盖问题）
+
+> **目标**：选出最少数量的节点，使每条边至少有一个端点被选中。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/vertexcover/datasets/` | 64 个实例，60 节点，边密度 0.3 |
+| **测试集** | `problems/vertexcover/datasets/` | 各 10 个实例：40 / 80 / 120 节点 |
+
+- **函数签名**：`select_next_vertex(uncovered_edges, adjacency_matrix, current_cover) → vertex_index`
+- **标准解**：多起点贪心 + 冗余节点消除
+
+---
+
+### 🧑‍🤝‍🧑 mTSP（多旅行商问题）
+
+> **目标**：为多个旅行商规划从仓库出发并返回的环线，覆盖全部客户，总距离最小。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/mtsp/datasets/` | 64 个实例，100 节点，3 个旅行商 |
+| **测试集** | `problems/mtsp/datasets/` | 各 10 个实例：50×3 / 100×4 / 200×5 |
+
+- **函数签名**：`select_next_node(current_node, unvisited_nodes, distance_matrix, remaining_salesmen) → next_node`
+- **标准解**：多起点最近邻
+
+---
+
+### ⏰ VRPTW（带时间窗车辆路径问题）
+
+> **目标**：在满足时间窗与容量约束下服务所有客户，总行驶距离最小。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/vrptw/datasets/` | 64 个实例，50 客户 |
+| **测试集** | `problems/vrptw/datasets/` | 各 10 个实例：50 / 100 / 200 客户 |
+
+- **函数签名**：`select_next_customer(current_node, current_time, remaining_demands, vehicle_capacity, current_load, distance_matrix, demand_list, time_windows, service_times) → next_node`
+- **标准解**：多策略贪心（EDD/距离/slack）+ 随机重启
+- **特点**：无可行客户时返回 -1 表示返回仓库
+
+---
+
+### 🧭 Orienteering（定向越野问题）
+
+> **目标**：在距离预算内从起点出发访问若干客户并返回，最大化总利润。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/orienteering/datasets/` | 64 个实例，100 节点 |
+| **测试集** | `problems/orienteering/datasets/` | 各 10 个实例：50 / 100 / 200 节点 |
+
+- **函数签名**：`select_next_node(current_node, visited, remaining_profits, distance_matrix, budget_left, total_profit) → next_node`
+- **标准解**：贪心 + 局部搜索（插入 / 移除-插入）
+
+---
+
+### 🌲 Steiner Tree（斯坦纳树问题）
+
+> **目标**：用最小总边权连接所有终端节点（允许引入斯坦纳点）。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/steinertree/datasets/` | 64 个实例，80 节点，12 终端 |
+| **测试集** | `problems/steinertree/datasets/` | 各 10 个实例：50×8 / 100×15 / 200×20 |
+
+- **函数签名**：`select_next_terminal(current_tree, unconnected_terminals, adjacency_matrix, distances) → terminal_index`
+- **标准解**：KMB 算法（终端 MST + 最短路径展开）
+
+---
+
+### 🔷 MaxClique（最大团问题）
+
+> **目标**：在无向图中找出节点两两相邻的最大节点集合。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/maxclique/datasets/` | 64 个实例，60 节点，密度 0.5 |
+| **测试集** | `problems/maxclique/datasets/` | 各 10 个实例：30 / 60 / 100 节点 |
+
+- **函数签名**：`select_next_vertex(current_clique, candidate_vertices, adjacency_matrix) → vertex_index`
+- **标准解**：多起点贪心（度数优先）
+
+---
+
+### ⚖️ SMTWT（单机加权延误调度问题）
+
+> **目标**：单机上最小化所有作业的加权总延误（ΣwT）。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/smtwt/datasets/` | 64 个实例，50 作业 |
+| **测试集** | `problems/smtwt/datasets/` | 各 10 个实例：50 / 100 / 200 作业 |
+
+- **函数签名**：`select_next_job(unscheduled_jobs, current_time, processing_times, due_dates, weights) → next_job`
+- **标准解**：WSPT/EDD/MS 贪心 + 相邻交换局部搜索
+
+---
+
+### 🖥️ ParMachine（并行机调度问题）
+
+> **目标**：把作业分配到相同并行机器上，最小化 makespan。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/parmachine/datasets/` | 64 个实例，100 作业，4 机器 |
+| **测试集** | `problems/parmachine/datasets/` | 各 10 个实例：50×4 / 100×8 / 200×8 |
+
+- **函数签名**：`assign_job(job_id, machine_loads, processing_times, num_machines) → machine_index`
+- **标准解**：LPT + 局部搜索（迁移/交换）
+
+---
+
+### 🔀 QAP（二次分配问题）
+
+> **目标**：把设施分配到位置，使所有设施对的流量×距离之和最小。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/qap/datasets/` | 64 个实例，12 设施 |
+| **测试集** | `problems/qap/datasets/` | 各 10 个实例：8 / 12 / 16 设施 |
+
+- **函数签名**：`assign_facility(facility_id, available_positions, flow_matrix, distance_matrix, current_assignment) → position_index`
+- **标准解**：贪心 + 成对交换局部搜索
+
+---
+
+### 🎯 k-Center（k 中心问题）
+
+> **目标**：选 k 个中心，使任意节点到最近中心的最大距离最小。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/kcenter/datasets/` | 64 个实例，100 节点，k=8 |
+| **测试集** | `problems/kcenter/datasets/` | 各 10 个实例：50×5 / 100×10 / 200×10 |
+
+- **函数签名**：`select_next_center(selected_centers, candidate_nodes, distance_matrix, k) → center_index`
+- **标准解**：最远点贪心 + 中心交换局部搜索
+
+---
+
+### ➗ Partition（数划分问题）
+
+> **目标**：把一组数字分成两组，使两组之和的差尽可能小。
+
+| 数据集 | 位置 | 说明 |
+|:------|:-----|:----|
+| **训练集** | `problems/partition/datasets/` | 64 个实例，100 个数字 |
+| **测试集** | `problems/partition/datasets/` | 各 10 个实例：50 / 100 / 200 个数字 |
+
+- **函数签名**：`assign_number(number_id, sum_a, sum_b, numbers) → group (0/1)`
+- **标准解**：贪心 + 移动/交换局部搜索
+
+---
+
+</details>
 
 ### 🧩 如何添加自定义问题情景
 

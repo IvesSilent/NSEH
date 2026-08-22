@@ -5,7 +5,20 @@
 
 ---
 
-## v2.5 最新 / Latest
+## v5.3 最新 / Latest
+
+- 🧩 **扩展至 20 个组合优化问题情景**：新增 15 个（Bin Packing / Graph Coloring / JSP / Set Cover / Vertex Cover / mTSP / VRPTW / Orienteering / Steiner Tree / MaxClique / SMTWT / Parallel Machine / QAP / k-Center / Partition），每个含数据集、标准解、评估、CLI、可视化
+  - **Expanded to 20 combinatorial optimization problem scenarios**: 15 new ones added, each with datasets, reference solutions, evaluators, CLI, and visualization
+- 🛡️ **启发式特征提取自检**（`core/prompt_template.py`）：标准解析失败时四层鲁棒回退（L1 花括号块 → L2 全文方括号 → L3 标签行 → L4 短语兜底），保证特征非空
+  - **Heuristic feature extraction self-check**: four-level robust fallback (L1 brace block → L2 brackets → L3 label line → L4 phrase fallback) when standard parsing fails
+- 🤖 **LLM 预设更新至 2026-08 最新**：DeepSeek V4 / GPT-5.6 / Claude 5 / Gemini 3.x / Qwen3.8 / GLM-5.3 / Kimi K3 等 28 个预设，默认模型改为 DeepSeek V4 Flash
+  - **LLM presets updated to 2026-08 latest**: 28 presets; default model is now DeepSeek V4 Flash
+- 📖 **README 更新**：20 个问题情景全部收录（折叠展示），目录树同步
+  - **README updated**: all 20 problem scenarios documented (collapsible), project tree synced
+
+---
+
+## v2.5 更新 / v2.5
 
 - 🏆 **排行榜系统**：独立排名页面（`/rank`），展示各用户最优适应度
   - **Leaderboard system**: dedicated ranking page (`/rank`) showing each user's best fitness
