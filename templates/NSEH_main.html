@@ -15,8 +15,25 @@
     <header>
         <h1>NSEH</h1>
 
-        <div class="user-profile">
-            <p><span data-i18n="header.welcome">欢迎，</span>{{ session['user_name'] }} ({{ session['user_id'] }})</p>
+        <div class="user-panel" id="user-panel">
+            <button type="button" class="user-panel-trigger" aria-label="用户入口：{{ session['user_name'] }}" aria-expanded="false" aria-controls="user-panel-menu" id="user-panel-trigger">
+                <span class="user-panel-avatar" aria-hidden="true">{{ session['user_name'][0] if session.get('user_name') else '?' }}</span>
+                <span class="user-panel-name">{{ session.get('user_name', '--') }}</span>
+                <span class="user-panel-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="user-panel-menu" id="user-panel-menu" role="menu" aria-label="用户菜单" hidden>
+                <button type="button" role="menuitem" class="user-panel-item" id="user-panel-info-btn"><span data-i18n="user.menu.info">用户信息</span></button>
+                <button type="button" role="menuitem" class="user-panel-item" id="user-panel-logout-btn"><span data-i18n="user.menu.logout">退出登录</span></button>
+            </div>
+            <div class="user-panel-info" id="user-panel-info" role="dialog" aria-label="用户信息" hidden>
+                <div class="user-panel-info-head"><span data-i18n="user.info.title">当前用户</span></div>
+                <dl class="user-panel-details">
+                    <div><dt data-i18n="user.info.name">姓名</dt><dd>{{ session.get('user_name', '--') }}</dd></div>
+                    <div><dt data-i18n="user.info.id">用户 ID</dt><dd>{{ session.get('user_id', '--') }}</dd></div>
+                    <div><dt data-i18n="user.info.role">角色</dt><dd>{% if user_role == 'admin' %}<span data-i18n="user.role.admin">管理员</span>{% else %}<span data-i18n="user.role.user">普通用户</span>{% endif %}</dd></div>
+                </dl>
+                <button type="button" class="user-panel-back" id="user-panel-back-btn"><span data-i18n="user.info.back">返回用户菜单</span></button>
+            </div>
         </div>
 
         <div class="header-actions">

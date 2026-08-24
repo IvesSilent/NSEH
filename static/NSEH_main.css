@@ -1801,3 +1801,48 @@ button:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ════════════════════════════════════════════
+   用户面板（迁移自 power-trade-platform HomeTopBarUserPanel）
+   头像 + 下拉菜单（用户信息 / 退出登录）+ 用户信息详情
+   ════════════════════════════════════════════ */
+.user-panel { position: relative; display: inline-flex; }
+.user-panel-trigger {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px 5px 6px; border: 1px solid var(--border, #2a3b55);
+  border-radius: 20px; background: var(--bg-secondary); color: var(--text-primary);
+  cursor: pointer; font-size: 0.85rem; transition: background 0.15s ease, border-color 0.15s ease;
+}
+.user-panel-trigger:hover { background: var(--bg-hover); border-color: var(--accent); }
+.user-panel-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.user-panel-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); color: #0b1728; font-weight: 700; font-size: 0.8rem;
+}
+.user-panel-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-panel-chevron { font-size: 0.7rem; opacity: 0.75; transition: transform 0.15s ease; }
+.user-panel-trigger[aria-expanded="true"] .user-panel-chevron { transform: rotate(180deg); }
+.user-panel-menu, .user-panel-info {
+  position: absolute; z-index: 50; top: calc(100% + 8px); right: 0;
+  min-width: 180px; padding: 6px; border: 1px solid var(--border, #2a3b55);
+  border-radius: 10px; background: var(--bg-secondary); box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+.user-panel-item {
+  display: block; width: 100%; padding: 9px 12px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; font-size: 0.85rem;
+}
+.user-panel-item:hover { background: var(--bg-hover); color: var(--accent); }
+.user-panel-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.user-panel-info-head { padding: 8px 12px 6px; font-size: 0.75rem; font-weight: 700; color: var(--accent); }
+.user-panel-details { margin: 0; padding: 0 12px; }
+.user-panel-details > div { display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; border-bottom: 1px dashed var(--border, #2a3b55); font-size: 0.82rem; }
+.user-panel-details > div:last-child { border-bottom: 0; }
+.user-panel-details dt { color: var(--text-muted); }
+.user-panel-details dd { margin: 0; color: var(--text-primary); text-align: right; word-break: break-all; }
+.user-panel-back {
+  display: block; width: 100%; margin-top: 6px; padding: 8px 12px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--accent); text-align: left; cursor: pointer; font-size: 0.8rem;
+}
+.user-panel-back:hover { background: var(--bg-hover); }
+.user-panel-back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

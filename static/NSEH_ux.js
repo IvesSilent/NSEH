@@ -281,3 +281,64 @@
   init();
 
 })();
+
+  // ── User Panel（迁移自 power-trade-platform HomeTopBarUserPanel）──
+  function initUserPanel() {
+    const trigger = document.getElementById('user-panel-trigger');
+    const menu = document.getElementById('user-panel-menu');
+    const info = document.getElementById('user-panel-info');
+    const infoBtn = document.getElementById('user-panel-info-btn');
+    const backBtn = document.getElementById('user-panel-back-btn');
+    const logoutBtn = document.getElementById('user-panel-logout-btn');
+    const mainLogout = document.getElementById('logout-btn');
+    if (!trigger || !menu) return;
+
+    let view = 'menu'; // 'menu' | 'info'
+
+    function closePanel() {
+      menu.hidden = true;
+      info.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+      requestAnimationFrame(() => trigger.focus());
+    }
+
+    function openMenu() {
+      view = 'menu';
+      menu.hidden = false;
+      info.hidden = true;
+      trigger.setAttribute('aria-expanded', 'true');
+      requestAnimationFrame(() => infoBtn.focus());
+    }
+
+    function openInfo() {
+      view = 'info';
+      menu.hidden = true;
+      info.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+    }
+
+    trigger.addEventListener('click', () => {
+      if (trigger.getAttribute('aria-expanded') === 'true') closePanel();
+      else openMenu();
+    });
+    infoBtn.addEventListener('click', openInfo);
+    backBtn.addEventListener('click', openMenu);
+    logoutBtn.addEventListener('click', () => {
+      closePanel();
+      if (mainLogout) mainLogout.click();
+    });
+
+    // 外点关闭
+    document.addEventListener('pointerdown', (e) => {
+      if (trigger.getAttribute('aria-expanded') !== 'true') return;
+      const panel = document.getElementById('user-panel');
+      if (panel && !panel.contains(e.target)) closePanel();
+    });
+    // Esc 关闭
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && trigger.getAttribute('aria-expanded') === 'true') closePanel();
+    });
+  }
+
+  // 启动
+  document.addEventListener('DOMContentLoaded', initUserPanel);

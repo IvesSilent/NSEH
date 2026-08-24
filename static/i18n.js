@@ -24,6 +24,15 @@
       'header.admin': '⚙️ 管理后台',
       'header.theme': '主题',
       'header.logout': '退出',
+      'user.menu.info': '用户信息',
+      'user.menu.logout': '退出登录',
+      'user.info.title': '当前用户',
+      'user.info.name': '姓名',
+      'user.info.id': '用户 ID',
+      'user.info.role': '角色',
+      'user.info.back': '返回用户菜单',
+      'user.role.admin': '管理员',
+      'user.role.user': '普通用户',
       'header.langBtn': 'English',        // 中文模式下按钮显示 English（目标语言）
       'header.langTitle': '切换语言 / Switch language',
 
@@ -294,6 +303,15 @@
       'header.admin': '⚙️ Admin',
       'header.theme': 'Theme',
       'header.logout': 'Logout',
+      'user.menu.info': 'User Info',
+      'user.menu.logout': 'Sign Out',
+      'user.info.title': 'Current User',
+      'user.info.name': 'Name',
+      'user.info.id': 'User ID',
+      'user.info.role': 'Role',
+      'user.info.back': 'Back to Menu',
+      'user.role.admin': 'Administrator',
+      'user.role.user': 'Regular User',
       'header.langBtn': '中文',          // 英文模式下按钮显示 中文（目标语言）
       'header.langTitle': '切换语言 / Switch language',
 
